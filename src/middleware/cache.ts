@@ -35,7 +35,8 @@ export class CacheModule {
       return null;
     }
     
-    return this.cache.get(key) as T | null;
+    const value = this.cache.get(key);
+    return value === undefined ? null : (value as T);
   }
 
   set<T>(key: string, value: T, ttl?: number): void {
