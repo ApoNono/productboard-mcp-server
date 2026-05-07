@@ -26,9 +26,10 @@ export class Logger {
             colorize: true,
             translateTime: 'HH:MM:ss',
             ignore: 'pid,hostname',
+            destination: 2,
           },
         },
-      }, process.stderr);
+      });
     } else {
       this.pino = pino(options, process.stderr);
     }
