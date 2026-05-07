@@ -69,16 +69,20 @@ export class ListNotesTool extends BaseTool<ListNotesParams> {
   protected async executeInternal(params: ListNotesParams = {}): Promise<unknown> {
     this.logger.info('Listing notes');
 
+    // Productboard's /notes endpoint accepts camelCase query params, not snake_case.
+    // Names sent in snake_case are silently ignored, so previously every filter
+    // (date_from, feature_id, tags, etc.) had no effect and `limit` was ignored
+    // (defaulting to Productboard's max of 100).
     const queryParams: Record<string, any> = {
-      limit: params.limit || 20,
+      pageLimit: params.limit ?? 20,
     };
-    
-    if (params.feature_id) queryParams.feature_id = params.feature_id;
-    if (params.customer_email) queryParams.customer_email = params.customer_email;
-    if (params.company_name) queryParams.company_name = params.company_name;
-    if (params.tags) queryParams.tags = params.tags;
-    if (params.date_from) queryParams.date_from = params.date_from;
-    if (params.date_to) queryParams.date_to = params.date_to;
+
+    if (params.feature_id) queryParams.featureId = params.feature_id;
+    if (params.customer_email) queryParams.customerEmail = params.customer_email;
+    if (params.company_name) queryParams.companyName = params.company_name;
+    if (params.tags?.length) queryParams.allTags = params.tags.join(',');
+    if (params.date_from) queryParams.createdFrom = params.date_from;
+    if (params.date_to) queryParams.createdTo = params.date_to;
 
     const response = await this.apiClient.makeRequest({
       method: 'GET',

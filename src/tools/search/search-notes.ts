@@ -115,27 +115,34 @@ export class SearchNotesTool extends BaseTool<SearchNotesParams> {
     try {
       this.logger.info('Searching notes', { query: params.query });
 
+      // Productboard does not expose a `/search/notes` endpoint — it returned
+      // a 404 ("no Route matched with those values"). Note search is the same
+      // /notes endpoint with the `term` query parameter, which performs a
+      // full-text match across note title and content.
+      //
+      // Productboard's /notes endpoint also uses camelCase query parameters
+      // and accepts a single value (not arrays) for most filters; only `allTags`
+      // accepts a comma-separated list. The `sort` and `order` parameters are
+      // not supported by /notes and are silently ignored — they remain in the
+      // tool's input schema for backwards compatibility but have no effect.
       const queryParams: Record<string, any> = {
-        q: params.query,
-        sort: params.sort || 'relevance',
-        order: params.order || 'desc',
-        limit: params.limit || 20,
-        offset: params.offset || 0,
+        term: params.query,
+        pageLimit: params.limit ?? 20,
       };
 
       if (params.filters) {
-        if (params.filters.customer_emails?.length) queryParams.customer_emails = params.filters.customer_emails.join(',');
-        if (params.filters.company_names?.length) queryParams.company_names = params.filters.company_names.join(',');
-        if (params.filters.tags?.length) queryParams.tags = params.filters.tags.join(',');
-        if (params.filters.source?.length) queryParams.source = params.filters.source.join(',');
-        if (params.filters.created_after) queryParams.created_after = params.filters.created_after;
-        if (params.filters.created_before) queryParams.created_before = params.filters.created_before;
-        if (params.filters.feature_ids?.length) queryParams.feature_ids = params.filters.feature_ids.join(',');
+        if (params.filters.customer_emails?.length) queryParams.customerEmail = params.filters.customer_emails[0];
+        if (params.filters.company_names?.length) queryParams.companyName = params.filters.company_names[0];
+        if (params.filters.tags?.length) queryParams.allTags = params.filters.tags.join(',');
+        if (params.filters.source?.length) queryParams.source = params.filters.source[0];
+        if (params.filters.created_after) queryParams.createdFrom = params.filters.created_after;
+        if (params.filters.created_before) queryParams.createdTo = params.filters.created_before;
+        if (params.filters.feature_ids?.length) queryParams.featureId = params.filters.feature_ids[0];
       }
 
       const response = await this.apiClient.makeRequest({
         method: 'GET',
-        endpoint: '/search/notes',
+        endpoint: '/notes',
         params: queryParams,
       });
 
