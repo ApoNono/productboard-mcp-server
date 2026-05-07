@@ -9,15 +9,15 @@ export class BearerTokenAuth {
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
-    this.logger = new Logger({ level: 'debug', name: 'bearer-auth' });
+    const level = (process.env.LOG_LEVEL ?? 'info') as 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+    this.logger = new Logger({ level, name: 'bearer-auth' });
   }
 
   async validateToken(token: string): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/features`;
       this.logger.debug('Bearer token validation URL', { url });
-      this.logger.debug('Headers', this.getHeaders(token));
-      
+
       // Use /features endpoint for token validation (without parameters)
       const response = await axios.get(url, {
         headers: this.getHeaders(token),
