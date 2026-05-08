@@ -1,6 +1,6 @@
 # Productboard MCP Server
 
-> **Internal fork** of [miguelarios/productboard-mcp-server](https://github.com/miguelarios/productboard-mcp-server) with four pending bug fixes applied: cache returning `undefined` on miss (broke every tool call with default config), MCP stdio protocol pollution from pretty logs, bearer-auth logger hygiene, and notes-API filtering/search using the wrong Productboard parameter names and endpoint. Pinned tag: `v1.0.2-fork`. Upstream PRs are open and this fork will track upstream once they merge.
+> **Internal fork** of [miguelarios/productboard-mcp-server](https://github.com/miguelarios/productboard-mcp-server) with five pending bug fixes applied: cache returning `undefined` on miss (broke every tool call with default config), MCP stdio protocol pollution from pretty logs, bearer-auth logger hygiene, notes-API filtering/search using the wrong Productboard parameter names and endpoint, and product-hierarchy assembling the tree client-side instead of calling a non-existent `/products/hierarchy` endpoint. Pinned tag: `v1.0.3-fork`. Upstream PRs are open and this fork will track upstream once they merge.
 
 A **comprehensive** Model Context Protocol (MCP) server that provides seamless integration with the Productboard API. This server enables AI assistants and other MCP clients to interact with Productboard through **49 specialized tools** covering all major Productboard functionalities.
 
