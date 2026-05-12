@@ -35,6 +35,11 @@ export enum Permission {
   OBJECTIVES_WRITE = 'objectives:write',
   OBJECTIVES_DELETE = 'objectives:delete',
 
+  // Initiative permissions
+  INITIATIVES_READ = 'initiatives:read',
+  INITIATIVES_WRITE = 'initiatives:write',
+  INITIATIVES_DELETE = 'initiatives:delete',
+
   // Release permissions
   RELEASES_READ = 'releases:read',
   RELEASES_WRITE = 'releases:write',

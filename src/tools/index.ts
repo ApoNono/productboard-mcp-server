@@ -22,6 +22,9 @@ export * from './bulk/index.js';
 // Objectives & Key Results tools
 export * from './objectives/index.js';
 
+// Initiative tools
+export * from './initiatives/index.js';
+
 // Release Management tools
 export * from './releases/index.js';
 
