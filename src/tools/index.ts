@@ -10,6 +10,9 @@ export * from './notes/index.js';
 // User tools
 export * from './users/index.js';
 
+// Team tools
+export * from './teams/index.js';
+
 // Company tools
 export * from './companies/index.js';
 
