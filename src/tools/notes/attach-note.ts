@@ -45,15 +45,29 @@ export class AttachNoteTool extends BaseTool<AttachNoteParams> {
       featureCount: params.feature_ids.length,
     });
 
-    const response = await this.apiClient.makeRequest({
-      method: 'POST',
-      endpoint: `/notes/${params.note_id}/attach`,
-      data: { feature_ids: params.feature_ids },
-    });
+    // v2 endpoint: POST /v2/notes/{id}/relationships, one call per feature link
+    const results = [] as unknown[];
+    for (const featureId of params.feature_ids) {
+      const body = {
+        data: {
+          type: 'link',
+          target: {
+            type: 'link',
+            id: featureId,
+            entity: { type: 'feature' },
+          },
+        },
+      };
+      const response = await this.apiClient.post(
+        `/v2/notes/${params.note_id}/relationships`,
+        body,
+      );
+      results.push(response);
+    }
 
     return {
       success: true,
-      data: response,
+      data: results,
     };
   }
 }
