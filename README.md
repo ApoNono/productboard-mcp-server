@@ -1,6 +1,15 @@
 # Productboard MCP Server
 
-> **Internal fork** of [miguelarios/productboard-mcp-server](https://github.com/miguelarios/productboard-mcp-server) with five pending bug fixes and one new feature applied: cache returning `undefined` on miss (broke every tool call with default config), MCP stdio protocol pollution from pretty logs, bearer-auth logger hygiene, notes-API filtering/search using the wrong Productboard parameter names and endpoint, product-hierarchy assembling the tree client-side instead of calling a non-existent `/products/hierarchy` endpoint, and a new `pb_initiative_*` tool family (6 tools) that exposes Productboard's `/initiatives` resource which the upstream project never implemented. Pinned tag: `v1.0.4-fork`. Upstream PRs are open and this fork will track upstream once they merge.
+> **Internal fork** of [miguelarios/productboard-mcp-server](https://github.com/miguelarios/productboard-mcp-server). Pinned tag: **`v1.0.5-fork`**. Upstream PRs are open and this fork will track upstream once they merge. New contributors: read [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+>
+> **What's different from upstream:**
+>
+> - **Bug fixes** (v1.0.1 → v1.0.3): cache returning `undefined` on miss (broke every tool call with default config), MCP stdio protocol pollution from pretty logs, bearer-auth logger hygiene, notes-API filtering/search using wrong Productboard parameter names and endpoint, product-hierarchy assembling the tree client-side instead of calling a non-existent `/products/hierarchy` endpoint.
+> - **New tools** (v1.0.4): `pb_initiative_*` family (6 tools) exposing Productboard's `/initiatives` resource that upstream never implemented.
+> - **v2 API migration + new tools** (v1.0.5, contributed by @PaulE): `pb_feature_create` and `pb_note_attach` migrated to Productboard's v2 API (`/v2/entities`, `/v2/notes/{id}/relationships`); new tools `pb_note_process` (mark notes processed/unprocessed) and `pb_team_list` (look up team UUIDs); Windows path separator fix in `scripts/fix-imports.js`.
+> - **Documentation** (v1.0.5): `CONTRIBUTING.md` added; `CLAUDE.md` extended with Claude-Code-specific contribution guidance.
+>
+> ⚠️ **Breaking change in v1.0.5**: `pb_feature_create` no longer accepts `status` or `priority` parameters — Productboard's v2 `/entities` endpoint sets these via separate PATCH calls. Callers that previously passed these will get a validation error. Set status/priority via `pb_feature_update` after creation if needed.
 
 A **comprehensive** Model Context Protocol (MCP) server that provides seamless integration with the Productboard API. This server enables AI assistants and other MCP clients to interact with Productboard through **49 specialized tools** covering all major Productboard functionalities.
 

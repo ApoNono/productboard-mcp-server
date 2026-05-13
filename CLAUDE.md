@@ -2,6 +2,57 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Before making any change, also read [`CONTRIBUTING.md`](./CONTRIBUTING.md)** in the repo root. It documents the branch naming, commit message format, and PR conventions that this fork uses. Following them keeps contributions reviewable and merge-friendly.
+
+## Working in this repo (Claude Code-specific guidance)
+
+This is a fork (`ApoNono/productboard-mcp-server`) of an upstream project; the maintainer is a small team that values consistent, reviewable contributions. When Claude Code is invoked to make changes here, follow these guardrails in addition to CONTRIBUTING.md:
+
+### Before changing code
+
+1. **Sync `main` first.** Run `git checkout main && git pull origin main` before creating a topic branch. A stale base is the most common source of merge friction.
+2. **Read recent commits** (`git log --oneline -10`) to learn the project's tone and recent direction.
+3. **For any Productboard API change, verify the endpoint with a real curl** before writing code. Productboard silently ignores unknown query parameters and uses **camelCase** (`pageLimit`, `createdFrom`, `featureId`) — wrong param names produce no error, just empty results. Don't trust priors; confirm with the API.
+   ```bash
+   set -a && source .env && set +a
+   curl -sS -H "Authorization: Bearer $PRODUCTBOARD_API_TOKEN" \
+        -H "X-Version: 1" "$PRODUCTBOARD_API_BASE_URL/<path>"
+   ```
+
+### Branching and committing
+
+- **Branch names**: `fix/<scope>-<short>`, `feat/<scope>`, `docs/<short>`, `chore/<short>`. Always use the slash separator. Never push to `main`.
+- **Commit messages**: conventional-commits format — `fix(scope): description`, `feat(scope): description`. Include a "Verified end-to-end" section in the body listing what you actually tested vs what's speculative.
+- **AI assistance**: include `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>` (or your model version) at the end of the commit body.
+- **Breaking changes**: if you remove or rename a tool input parameter, change a tool's permission requirements, or alter user-visible behavior, write `BREAKING:` followed by the impact in the commit body. Tool input schemas are public API.
+
+### One PR = one logical change
+
+If you can't summarize the PR in one sentence, split it. Drive-by fixes you stumble across belong in a separate PR. Bundling unrelated changes makes review and revert painful.
+
+### Verification expectations
+
+- Run `npm run typecheck` and `npm run build` and confirm both pass before pushing.
+- For new tools or modified tool behavior: spawn the server (`node dist/index.js` via stdio) and exercise the tool. List the tools/calls you verified in the commit body's "Verified" section.
+- Write-side tools that would create real data in the Productboard workspace can be left unverified — say so explicitly: `Not verified (would create real data): pb_X_create`.
+
+### Tool registration checklist (when adding a new tool)
+
+When adding a new tool, four files must change. If you forget one, the tool won't appear in `tools/list`:
+
+1. **Tool file** in `src/tools/<resource>/<name>.ts` extending `BaseTool`
+2. **Module index** at `src/tools/<resource>/index.ts` exporting the tool class
+3. **Top-level index** at `src/tools/index.ts` re-exporting the module
+4. **Permissions**:
+   - If using an existing permission (e.g. `NOTES_READ`), no change needed
+   - If adding a new resource, add `<RESOURCE>_READ/WRITE/DELETE` to `src/auth/permissions.ts` AND grant them in `PermissionDiscoveryService.grantFullPermissions()` in `src/auth/permission-discovery.ts`. Bearer-auth users won't see the tool otherwise.
+
+### Don't change without confirming
+
+- Don't rename existing tools or their input parameters without flagging as a breaking change and discussing with the maintainer
+- Don't introduce new API conventions (e.g. switching from v1 to v2 Productboard endpoints) without an `RFC:` issue first
+- Don't bump version tags or update the README fork-note — release tagging is the maintainer's responsibility
+
 ## Development Commands
 
 ### Build and Start
