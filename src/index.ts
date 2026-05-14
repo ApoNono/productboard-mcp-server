@@ -1,10 +1,14 @@
 import { config } from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 import { ProductboardMCPServer } from '@core/server.js';
 import { ConfigManager } from '@utils/config.js';
 import { Logger } from '@utils/logger.js';
 
-// Load environment variables
-config();
+// Load environment variables from .env next to this script,
+// regardless of the current working directory when invoked.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: resolve(__dirname, '../.env') });
 
 async function main(): Promise<void> {
   const configManager = new ConfigManager();
