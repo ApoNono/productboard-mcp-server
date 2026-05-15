@@ -120,6 +120,50 @@ describe('CreateFeatureTool', () => {
   });
 
   describe('execute', () => {
+    const parseResult = (result: any) => JSON.parse(result.content[0].text);
+
+    it('should return an error when neither component_id nor product_id is provided', async () => {
+      const result = await tool.execute({
+        name: 'My Feature',
+        description: 'A description',
+      });
+
+      expect(parseResult(result)).toEqual({
+        success: false,
+        error:
+          'Feature creation requires a parent. Provide either component_id or product_id. ' +
+          'To find the right component, search for an existing feature in the same product area and use its parent.component.id.',
+      });
+
+      expect(mockClient.post).not.toHaveBeenCalled();
+    });
+
+    it('should proceed when component_id is provided', async () => {
+      mockClient.post.mockResolvedValueOnce({ data: { id: 'feat-1' } });
+
+      const result = await tool.execute({
+        name: 'My Feature',
+        description: 'A description',
+        component_id: 'comp-123',
+      });
+
+      expect(mockClient.post).toHaveBeenCalled();
+      expect(parseResult(result).success).toBe(true);
+    });
+
+    it('should proceed when product_id is provided', async () => {
+      mockClient.post.mockResolvedValueOnce({ data: { id: 'feat-2' } });
+
+      const result = await tool.execute({
+        name: 'My Feature',
+        description: 'A description',
+        product_id: 'prod-456',
+      });
+
+      expect(mockClient.post).toHaveBeenCalled();
+      expect(parseResult(result).success).toBe(true);
+    });
+
     it('should create feature with valid input', async () => {
       const validInput = {
         name: 'User Authentication Feature',

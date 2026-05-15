@@ -69,6 +69,15 @@ export class CreateFeatureTool extends BaseTool<CreateFeatureParams> {
 
   protected async executeInternal(params: CreateFeatureParams): Promise<ToolExecutionResult> {
     try {
+      if (!params.component_id && !params.product_id) {
+        return {
+          success: false,
+          error:
+            'Feature creation requires a parent. Provide either component_id or product_id. ' +
+            'To find the right component, search for an existing feature in the same product area and use its parent.component.id.',
+        };
+      }
+
       // Convert plain text description to HTML if needed
       const description = params.description.startsWith('<')
         ? params.description
