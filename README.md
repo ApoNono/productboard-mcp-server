@@ -1,6 +1,6 @@
 # Productboard MCP Server
 
-> **Internal fork** of [miguelarios/productboard-mcp-server](https://github.com/miguelarios/productboard-mcp-server). Pinned tag: **`v1.0.5-fork`**. Upstream PRs are open and this fork will track upstream once they merge. New contributors: read [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+> **Internal fork** of [miguelarios/productboard-mcp-server](https://github.com/miguelarios/productboard-mcp-server). Pinned tag: **`v1.0.6-fork`**. Upstream PRs are open and this fork will track upstream once they merge. New contributors: read [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 >
 > **What's different from upstream:**
 >
@@ -8,8 +8,11 @@
 > - **New tools** (v1.0.4): `pb_initiative_*` family (6 tools) exposing Productboard's `/initiatives` resource that upstream never implemented.
 > - **v2 API migration + new tools** (v1.0.5, contributed by @PaulE): `pb_feature_create` and `pb_note_attach` migrated to Productboard's v2 API (`/v2/entities`, `/v2/notes/{id}/relationships`); new tools `pb_note_process` (mark notes processed/unprocessed) and `pb_team_list` (look up team UUIDs); Windows path separator fix in `scripts/fix-imports.js`.
 > - **Documentation** (v1.0.5): `CONTRIBUTING.md` added; `CLAUDE.md` extended with Claude-Code-specific contribution guidance.
+> - **Release read-side fixes + new tool** (v1.0.6): `pb_release_list` and `pb_release_timeline` were both returning HTTP 400 on every call (wrong query params, non-existent `/releases/timeline` endpoint) — rewritten to hit real endpoints and filter client-side. New `pb_release_group_list` tool exposes `/release-groups` (previously no way to discover release-group UUIDs).
 >
 > ⚠️ **Breaking change in v1.0.5**: `pb_feature_create` no longer accepts `status` or `priority` parameters — Productboard's v2 `/entities` endpoint sets these via separate PATCH calls. Callers that previously passed these will get a validation error. Set status/priority via `pb_feature_update` after creation if needed.
+>
+> ℹ️ **Minor schema change in v1.0.6**: `pb_release_list`'s `status` parameter is now an open string rather than the previous enum `['planned', 'in_progress', 'released']`. Legacy values are still mapped internally (`planned` → `upcoming`, `in_progress` → `in-progress`, `released` → `completed`) so existing callers keep working, but the parameter now also accepts Productboard's native state values directly.
 
 A **comprehensive** Model Context Protocol (MCP) server that provides seamless integration with the Productboard API. This server enables AI assistants and other MCP clients to interact with Productboard through **49 specialized tools** covering all major Productboard functionalities.
 
