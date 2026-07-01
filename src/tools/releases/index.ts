@@ -5,3 +5,4 @@ export { AddFeaturesToReleaseTool } from './add-features.js';
 export { RemoveFeaturesFromReleaseTool } from './remove-features.js';
 export { ReleaseTimelineTool } from './timeline.js';
 export { ReleaseStatusUpdateTool } from './status-update.js';
+export { ListReleaseGroupsTool } from './list-release-groups.js';
