@@ -2,11 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Before making any change, also read [`CONTRIBUTING.md`](./CONTRIBUTING.md)** in the repo root. It documents the branch naming, commit message format, and PR conventions that this fork uses. Following them keeps contributions reviewable and merge-friendly.
+> **Before making any change, also read [`CONTRIBUTING.md`](./CONTRIBUTING.md)** in the repo root. It documents the branch naming, commit message format, and PR conventions this project uses. Following them keeps contributions reviewable and merge-friendly.
 
 ## Working in this repo (Claude Code-specific guidance)
 
-This is a fork (`ApoNono/productboard-mcp-server`) of an upstream project; the maintainer is a small team that values consistent, reviewable contributions. When Claude Code is invoked to make changes here, follow these guardrails in addition to CONTRIBUTING.md:
+`ApoNono/productboard-mcp-server` is a standalone Productboard **v2** MCP server maintained by a small team that values consistent, reviewable contributions. When Claude Code is invoked to make changes here, follow these guardrails in addition to CONTRIBUTING.md:
 
 ### Before changing code
 
@@ -50,8 +50,8 @@ When adding a new tool, four files must change. If you forget one, the tool won'
 ### Don't change without confirming
 
 - Don't rename existing tools or their input parameters without flagging as a breaking change and discussing with the maintainer
-- Don't introduce new API conventions (e.g. switching from v1 to v2 Productboard endpoints) without an `RFC:` issue first
-- Don't bump version tags or update the README fork-note — release tagging is the maintainer's responsibility
+- All Productboard calls target the **v2 API** (`/v2/...`). The v1 REST API is retired (returns `410 Gone`) — never reintroduce a v1 endpoint. Verify any new endpoint with a real curl before writing code.
+- Don't bump version tags or update `CHANGELOG.md` — release tagging is the maintainer's responsibility
 
 ## Development Commands
 

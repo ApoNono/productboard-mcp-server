@@ -1,8 +1,8 @@
-# Contributing to this fork
+# Contributing
 
-> **This file applies to the `ApoNono/productboard-mcp-server` fork** (maintained for the Unifyr product team) — not the upstream `miguelarios/productboard-mcp-server`. If you intend to contribute upstream, see the upstream project's conventions.
+> **`ApoNono/productboard-mcp-server`** — a standalone Productboard **v2** MCP server maintained by the Unifyr product team.
 
-This document captures the conventions for landing changes in the fork. The conventions are deliberately lightweight: the goal is "consistent enough that diffs are easy to review and revert," not bureaucracy. Read it once, refer back when in doubt.
+This document captures the conventions for landing changes. The conventions are deliberately lightweight: the goal is "consistent enough that diffs are easy to review and revert," not bureaucracy. Read it once, refer back when in doubt.
 
 If you're using an AI coding assistant (Claude Code, Cursor, etc.), feed it this file alongside `CLAUDE.md` before you start.
 
@@ -43,7 +43,7 @@ Use the **conventional commits** format: `<type>(<scope>): <short summary>`. We'
 fix(cache): treat lru-cache undefined returns as cache miss
 fix(notes): use Productboard's actual query param names and search endpoint
 feat(initiatives): add 6 tools for the /initiatives Productboard resource
-docs: bump fork note to v1.0.4-fork (initiative tools)
+docs: note the new initiative tools in the changelog
 ```
 
 ### Commit message body
@@ -104,9 +104,9 @@ Unrelated drive-by fixes you stumble across while doing your main work belong in
 
 ## Releases and tagging
 
-The maintainer (currently @ApoNono) cuts releases. Don't tag versions yourself — just merge your PR and let the maintainer bump the README fork-note and tag `v1.0.X-fork` afterwards.
+The maintainer (currently @ApoNono) cuts releases. Don't tag versions yourself — just merge your PR and let the maintainer update [`CHANGELOG.md`](./CHANGELOG.md) and tag `vX.Y.Z` (semver, no suffix) afterwards.
 
-If your change is significant enough that users need to update (`git fetch --tags && git checkout vX.Y.Z-fork`), say so in the PR description so the maintainer knows to cut a new tag.
+If your change is significant enough that users need to update (`git fetch --tags && git checkout vX.Y.Z`), say so in the PR description so the maintainer knows to cut a new tag.
 
 ## Code conventions
 
@@ -139,4 +139,4 @@ git push -u origin fix/<scope>-<short-name>
 
 ## Open questions or proposals
 
-For larger design decisions (e.g. "should new tools default to the v2 API?"), open a GitHub issue with the prefix `RFC:` rather than a PR. Discuss there, reach a conclusion, then implement.
+For larger design decisions (e.g. "how should we model a new Productboard entity type as tools?"), open a GitHub issue with the prefix `RFC:` rather than a PR. Discuss there, reach a conclusion, then implement.
