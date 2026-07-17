@@ -104,12 +104,12 @@ export class CreateFeatureTool extends BaseTool<CreateFeatureParams> {
       if (params.component_id) {
         relationships.push({
           type: 'parent',
-          target: { type: 'component', id: params.component_id },
+          target: { id: params.component_id },
         });
       } else if (params.product_id) {
         relationships.push({
           type: 'parent',
-          target: { type: 'product', id: params.product_id },
+          target: { id: params.product_id },
         });
       }
 

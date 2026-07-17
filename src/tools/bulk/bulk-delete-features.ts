@@ -14,7 +14,7 @@ export class BulkDeleteFeaturesTool extends BaseTool<BulkDeleteFeaturesParams> {
   constructor(apiClient: ProductboardAPIClient, logger: Logger) {
     super(
       'pb_feature_bulk_delete',
-      'Bulk delete or archive multiple features',
+      'Bulk delete or archive multiple features (loops v2 /entities; v2 has no batch delete endpoint)',
       {
         type: 'object',
         required: ['feature_ids'],
@@ -29,14 +29,16 @@ export class BulkDeleteFeaturesTool extends BaseTool<BulkDeleteFeaturesParams> {
           permanent: {
             type: 'boolean',
             default: false,
-            description: 'If true, permanently delete. If false, archive.',
+            description:
+              'If true, permanently delete (DELETE /v2/entities/{id}). If false, archive by setting the v2 archived flag.',
           },
           batch_size: {
             type: 'number',
             minimum: 1,
             maximum: 50,
             default: 10,
-            description: 'Number of features to delete per batch',
+            description:
+              'Retained for compatibility. v2 has no batch delete endpoint, so features are processed one-by-one; this value no longer controls a server-side batch.',
           },
         },
       },
@@ -52,53 +54,35 @@ export class BulkDeleteFeaturesTool extends BaseTool<BulkDeleteFeaturesParams> {
 
   protected async executeInternal(params: BulkDeleteFeaturesParams): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Bulk deleting features', { 
+      this.logger.info('Bulk deleting features (v2 /entities loop)', {
         count: params.feature_ids.length,
-        permanent: params.permanent 
+        permanent: params.permanent,
       });
 
-      const batchSize = params.batch_size || 10;
       const results = {
         deleted: [] as string[],
         archived: [] as string[],
         failed: [] as { id: string; error: string }[],
       };
 
-      for (let i = 0; i < params.feature_ids.length; i += batchSize) {
-        const batch = params.feature_ids.slice(i, i + batchSize);
-        
+      for (const id of params.feature_ids) {
         if (params.permanent) {
           try {
-            await this.apiClient.makeRequest({
-              method: 'DELETE',
-              endpoint: '/features/bulk',
-              data: { feature_ids: batch },
-            });
-            results.deleted.push(...batch);
+            await this.apiClient.delete(`/v2/entities/${id}`);
+            results.deleted.push(id);
           } catch (error) {
-            this.logger.error(`Failed to delete batch ${i / batchSize + 1}`, error);
-            batch.forEach(id => {
-              results.failed.push({
-                id,
-                error: (error as Error).message,
-              });
-            });
+            this.logger.error(`Failed to delete feature ${id}`, error);
+            results.failed.push({ id, error: (error as Error).message });
           }
         } else {
           try {
-            await this.apiClient.patch('/features/bulk', {
-              feature_ids: batch,
-              updates: { status: 'archived' },
+            await this.apiClient.patch(`/v2/entities/${id}`, {
+              data: { fields: { archived: true } },
             });
-            results.archived.push(...batch);
+            results.archived.push(id);
           } catch (error) {
-            this.logger.error(`Failed to archive batch ${i / batchSize + 1}`, error);
-            batch.forEach(id => {
-              results.failed.push({
-                id,
-                error: (error as Error).message,
-              });
-            });
+            this.logger.error(`Failed to archive feature ${id}`, error);
+            results.failed.push({ id, error: (error as Error).message });
           }
         }
       }
@@ -114,7 +98,6 @@ export class BulkDeleteFeaturesTool extends BaseTool<BulkDeleteFeaturesParams> {
       };
     } catch (error) {
       this.logger.error('Failed to bulk delete features', error);
-      
       return {
         success: false,
         error: `Failed to bulk delete features: ${(error as Error).message}`,

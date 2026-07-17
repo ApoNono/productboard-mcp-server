@@ -13,7 +13,7 @@ export class DeleteFeatureTool extends BaseTool<DeleteFeatureParams> {
   constructor(apiClient: ProductboardAPIClient, logger: Logger) {
     super(
       'pb_feature_delete',
-      'Delete a feature (or archive it)',
+      'Delete a feature (or archive it) (Productboard v2 /entities)',
       {
         type: 'object',
         required: ['id'],
@@ -25,7 +25,8 @@ export class DeleteFeatureTool extends BaseTool<DeleteFeatureParams> {
           permanent: {
             type: 'boolean',
             default: false,
-            description: 'If true, permanently delete. If false, archive.',
+            description:
+              'If true, permanently delete (DELETE /v2/entities/{id}). If false, archive by setting the v2 archived flag.',
           },
         },
       },
@@ -45,7 +46,7 @@ export class DeleteFeatureTool extends BaseTool<DeleteFeatureParams> {
 
       if (permanent) {
         // Permanent deletion
-        await this.apiClient.delete(`/features/${id}`);
+        await this.apiClient.delete(`/v2/entities/${id}`);
         return {
           success: true,
           data: {
@@ -54,10 +55,12 @@ export class DeleteFeatureTool extends BaseTool<DeleteFeatureParams> {
           },
         };
       } else {
-        // Archive by updating status
-        const feature = await this.apiClient.patch(`/features/${id}`, {
-          status: 'archived',
-        });
+        // Archive by setting the v2 archived flag.
+        const response = await this.apiClient.patch<{ data?: unknown }>(
+          `/v2/entities/${id}`,
+          { data: { fields: { archived: true } } }
+        );
+        const feature = (response as { data?: unknown })?.data ?? response;
         return {
           success: true,
           data: {

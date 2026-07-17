@@ -10,18 +10,25 @@ interface ListReleaseGroupsParams {
   limit?: number;
 }
 
-interface ProductboardReleaseGroup {
+interface ReleaseGroupEntity {
   id: string;
-  name: string;
-  description?: string;
-  archived?: boolean;
-  links?: { self?: string; html?: string };
+  type: string;
+  fields?: {
+    name?: string;
+    description?: string;
+    archived?: boolean;
+    [key: string]: unknown;
+  };
+  links?: { html?: string };
+  [key: string]: unknown;
 }
 
-interface ProductboardListResponse<T> {
-  data: T[];
-  links?: { next?: string };
+interface EntityListResponse {
+  data: ReleaseGroupEntity[];
+  links?: { next?: string | null };
 }
+
+const MAX_PAGES = 40;
 
 export class ListReleaseGroupsTool extends BaseTool<ListReleaseGroupsParams> {
   constructor(apiClient: ProductboardAPIClient, logger: Logger) {
@@ -33,11 +40,11 @@ export class ListReleaseGroupsTool extends BaseTool<ListReleaseGroupsParams> {
         properties: {
           name: {
             type: 'string',
-            description: 'Case-insensitive substring filter on the group name',
+            description: 'Case-insensitive substring filter on the group name (client-side)',
           },
           archived: {
             type: 'boolean',
-            description: 'If true, include archived groups; if false, only active ones. Omit for all.',
+            description: 'If true, include only archived groups; if false, only active ones. Omit for all. (client-side)',
           },
           limit: {
             type: 'integer',
@@ -62,17 +69,46 @@ export class ListReleaseGroupsTool extends BaseTool<ListReleaseGroupsParams> {
     try {
       this.logger.info('Listing release groups');
 
-      // Productboard's /release-groups endpoint has no server-side filters
-      // beyond pagination — everything else is applied client-side.
-      const groups = await this.fetchAllPages('/release-groups', { pageLimit: 100 });
+      // v2 entities list. The v1 /release-groups endpoint now returns 410 Gone;
+      // release groups are v2 entities of type "releaseGroup". No server-side
+      // name/archived filters exist for them, so those are applied client-side.
+      let all: ReleaseGroupEntity[] = [];
+      let endpoint = '/v2/entities';
+      let queryParams: Record<string, any> | undefined = {
+        'type[]': 'releaseGroup',
+        'fields[]': 'all',
+      };
+      let pages = 0;
 
-      let filtered = groups;
+      while (endpoint && pages < MAX_PAGES) {
+        const response = (await this.apiClient.makeRequest({
+          method: 'GET',
+          endpoint,
+          params: queryParams,
+        })) as EntityListResponse;
+
+        if (Array.isArray(response?.data)) {
+          all.push(...response.data);
+        }
+
+        const next = response?.links?.next;
+        if (next) {
+          const url = new URL(next);
+          endpoint = url.pathname.replace(/^\/+/, '/');
+          queryParams = Object.fromEntries(url.searchParams.entries());
+        } else {
+          break;
+        }
+        pages += 1;
+      }
+
+      let filtered = all;
       if (params.name) {
         const needle = params.name.toLowerCase();
-        filtered = filtered.filter(g => (g.name ?? '').toLowerCase().includes(needle));
+        filtered = filtered.filter(g => (g.fields?.name ?? '').toLowerCase().includes(needle));
       }
       if (params.archived !== undefined) {
-        filtered = filtered.filter(g => Boolean(g.archived) === params.archived);
+        filtered = filtered.filter(g => Boolean(g.fields?.archived) === params.archived);
       }
 
       const limit = params.limit ?? 20;
@@ -83,13 +119,14 @@ export class ListReleaseGroupsTool extends BaseTool<ListReleaseGroupsParams> {
         data: {
           release_groups: results.map(g => ({
             id: g.id,
-            name: g.name,
-            archived: g.archived,
-            description: g.description,
+            name: g.fields?.name,
+            archived: g.fields?.archived,
+            description: g.fields?.description,
+            html: g.links?.html,
           })),
           total_matched: filtered.length,
           returned: results.length,
-          total_workspace: groups.length,
+          total_workspace: all.length,
         },
       };
     } catch (error) {
@@ -99,37 +136,5 @@ export class ListReleaseGroupsTool extends BaseTool<ListReleaseGroupsParams> {
         error: `Failed to list release groups: ${(error as Error).message}`,
       };
     }
-  }
-
-  private async fetchAllPages(
-    endpoint: string,
-    initialParams: Record<string, any>
-  ): Promise<ProductboardReleaseGroup[]> {
-    const all: ProductboardReleaseGroup[] = [];
-    let nextEndpoint: string | undefined = endpoint;
-    let nextParams: Record<string, any> | undefined = initialParams;
-
-    while (nextEndpoint) {
-      const response = (await this.apiClient.makeRequest({
-        method: 'GET',
-        endpoint: nextEndpoint,
-        params: nextParams,
-      })) as ProductboardListResponse<ProductboardReleaseGroup>;
-
-      if (Array.isArray(response?.data)) {
-        all.push(...response.data);
-      }
-
-      const next = response?.links?.next;
-      if (next) {
-        const url = new URL(next);
-        nextEndpoint = url.pathname.replace(/^\/+/, '/');
-        nextParams = Object.fromEntries(url.searchParams.entries());
-      } else {
-        nextEndpoint = undefined;
-      }
-    }
-
-    return all;
   }
 }

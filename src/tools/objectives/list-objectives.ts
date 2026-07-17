@@ -12,6 +12,32 @@ interface ListObjectivesParams {
   offset?: number;
 }
 
+// Shape of a single objective entity as returned by v2 /entities. Only the
+// fields we surface are described; the API returns more.
+interface V2Entity {
+  id: string;
+  type?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  fields?: {
+    name?: string;
+    description?: string;
+    status?: { id?: string; name?: string } | null;
+    owner?: { id?: string; email?: string } | null;
+    timeframe?: unknown;
+    teams?: unknown;
+    archived?: boolean;
+    health?: unknown;
+  };
+  links?: { self?: string; html?: string };
+  relationships?: unknown;
+}
+
+interface V2ListResponse {
+  data?: V2Entity[];
+  links?: { next?: string | null };
+}
+
 export class ListObjectivesTool extends BaseTool<ListObjectivesParams> {
   constructor(apiClient: ProductboardAPIClient, logger: Logger) {
     super(
@@ -23,17 +49,19 @@ export class ListObjectivesTool extends BaseTool<ListObjectivesParams> {
           status: {
             type: 'string',
             enum: ['active', 'completed', 'cancelled'],
-            description: 'Filter by objective status',
+            description:
+              'Filter by objective status. NOTE: the v2 API filters on named workflow statuses (e.g. "Upcoming", "In Progress"), which do not map to these legacy values, so this filter is reported as ignored.',
           },
           owner_email: {
             type: 'string',
             format: 'email',
-            description: 'Filter by owner email',
+            description: 'Filter by owner email (applied server-side via owner[email]).',
           },
           period: {
             type: 'string',
             enum: ['quarter', 'year'],
-            description: 'Filter by objective period',
+            description:
+              'Filter by objective period. NOTE: not a field on the v2 objective entity; reported as ignored.',
           },
           limit: {
             type: 'number',
@@ -46,7 +74,8 @@ export class ListObjectivesTool extends BaseTool<ListObjectivesParams> {
             type: 'number',
             minimum: 0,
             default: 0,
-            description: 'Number of objectives to skip',
+            description:
+              'Number of objectives to skip. Applied client-side (v2 uses cursor pagination, not offset).',
           },
         },
       },
@@ -62,32 +91,88 @@ export class ListObjectivesTool extends BaseTool<ListObjectivesParams> {
 
   protected async executeInternal(params: ListObjectivesParams = {}): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Listing objectives');
+      this.logger.info('Listing objectives (v2 /entities)');
 
-      const queryParams: Record<string, any> = {};
-      if (params.status) queryParams.status = params.status;
-      if (params.owner_email) queryParams.owner_email = params.owner_email;
-      if (params.period) queryParams.period = params.period;
-      if (params.limit) queryParams.limit = params.limit;
-      if (params.offset) queryParams.offset = params.offset;
+      const limit = params.limit ?? 20;
+      const offset = params.offset ?? 0;
+      // We must collect offset+limit items to honour client-side offset.
+      const cap = offset + limit;
 
-      const response = await this.apiClient.makeRequest({
-        method: 'GET',
-        endpoint: '/objectives',
-        params: queryParams,
-      });
+      const serverParams: Record<string, string> = {
+        'type[]': 'objective',
+        'fields[]': 'all',
+      };
+      if (params.owner_email) serverParams['owner[email]'] = params.owner_email;
+
+      const collected: ReturnType<typeof this.shapeObjective>[] = [];
+      let pageCursor: string | undefined;
+      let pages = 0;
+      let sawNextLink = false;
+      const MAX_PAGES = 40;
+
+      do {
+        const query: Record<string, string> = { ...serverParams };
+        if (pageCursor) query.pageCursor = pageCursor;
+
+        const resp = await this.apiClient.get<V2ListResponse>('/v2/entities', query);
+        const batch = resp?.data ?? [];
+        for (const entity of batch) {
+          collected.push(this.shapeObjective(entity));
+        }
+
+        const next = resp?.links?.next ?? undefined;
+        sawNextLink = Boolean(next);
+        pageCursor = next ? this.extractCursor(next) : undefined;
+        pages++;
+      } while (pageCursor && collected.length < cap && pages < MAX_PAGES);
+
+      const page = collected.slice(offset, offset + limit);
+
+      const ignoredFilters: string[] = [];
+      if (params.status) ignoredFilters.push('status');
+      if (params.period) ignoredFilters.push('period');
 
       return {
         success: true,
-        data: response,
+        data: {
+          objectives: page,
+          returned: page.length,
+          totalScanned: collected.length,
+          hasMore: sawNextLink || collected.length > offset + limit,
+          pagesScanned: pages,
+          appliedServerFilters: params.owner_email ? ['owner[email]'] : [],
+          ignoredFilters: ignoredFilters.length ? ignoredFilters : undefined,
+        },
       };
     } catch (error) {
       this.logger.error('Failed to list objectives', error);
-      
       return {
         success: false,
         error: `Failed to list objectives: ${(error as Error).message}`,
       };
+    }
+  }
+
+  private shapeObjective(entity: V2Entity) {
+    const f = entity.fields ?? {};
+    return {
+      id: entity.id,
+      name: f.name || 'Untitled Objective',
+      status: f.status?.name ?? null,
+      owner_email: f.owner?.email ?? null,
+      archived: f.archived ?? null,
+      created_at: entity.createdAt ?? null,
+      updated_at: entity.updatedAt ?? null,
+      html_url: entity.links?.html ?? null,
+    };
+  }
+
+  private extractCursor(nextUrl: string): string | undefined {
+    try {
+      return new URL(nextUrl).searchParams.get('pageCursor') ?? undefined;
+    } catch {
+      const match = nextUrl.match(/[?&]pageCursor=([^&]+)/);
+      return match ? decodeURIComponent(match[1]) : undefined;
     }
   }
 }

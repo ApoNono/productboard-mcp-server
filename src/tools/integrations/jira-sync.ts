@@ -104,35 +104,15 @@ export class JiraSyncTool extends BaseTool<JiraSyncParams> {
     );
   }
 
-  protected async executeInternal(params: JiraSyncParams): Promise<ToolExecutionResult> {
-    try {
-      this.logger.info('Syncing with JIRA', { action: params.action });
+  protected async executeInternal(_params: JiraSyncParams): Promise<ToolExecutionResult> {
+    // The v1 /integrations/jira/sync endpoint was retired (HTTP 410 Gone). The v2
+    // Jira integration API is read-only (GET /v2/jira-integrations only), so there is
+    // no sync/write endpoint to call.
+    this.logger.info('JIRA sync requested, but the v2 Jira integration is read-only');
 
-      const requestData: any = {
-        action: params.action,
-        options: params.sync_options || {
-          sync_status: true,
-          sync_priority: true,
-        },
-      };
-
-      if (params.jira_project_key) requestData.jira_project_key = params.jira_project_key;
-      if (params.feature_ids?.length) requestData.feature_ids = params.feature_ids;
-      if (params.mapping) requestData.mapping = params.mapping;
-
-      const response = await this.apiClient.post('/integrations/jira/sync', requestData);
-
-      return {
-        success: true,
-        data: response,
-      };
-    } catch (error) {
-      this.logger.error('Failed to sync with JIRA', error);
-      
-      return {
-        success: false,
-        error: `Failed to sync with JIRA: ${(error as Error).message}`,
-      };
-    }
+    return {
+      success: false,
+      error: 'Productboard v2 API does not expose a Jira export/sync write endpoint (v2 Jira integration is read-only). This operation is no longer available.',
+    };
   }
 }

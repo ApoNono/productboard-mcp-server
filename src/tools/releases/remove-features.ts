@@ -42,29 +42,32 @@ export class RemoveFeaturesFromReleaseTool extends BaseTool<RemoveFeaturesFromRe
 
   protected async executeInternal(params: RemoveFeaturesFromReleaseParams): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Removing features from release', { 
+      this.logger.info('Removing features from release', {
         release_id: params.release_id,
-        feature_count: params.feature_ids.length 
+        feature_count: params.feature_ids.length,
       });
 
-      const response = await this.apiClient.makeRequest({
-        method: 'DELETE',
-        endpoint: `/releases/${params.release_id}/features`,
-        data: {
-          feature_ids: params.feature_ids,
-        },
-      });
+      // v2: the feature<->release link is a relationship keyed by the target id.
+      // Delete it via DELETE /v2/entities/{releaseId}/relationships/{featureId},
+      // mirroring the note-detach endpoint (/v2/notes/:id/relationships/:featureId).
+      const results: unknown[] = [];
+      for (const featureId of params.feature_ids) {
+        await this.apiClient.delete(
+          `/v2/entities/${params.release_id}/relationships/${featureId}`,
+        );
+        results.push({ feature_id: featureId, removed: true });
+      }
 
       return {
         success: true,
-        data: response,
+        data: results,
       };
     } catch (error) {
       this.logger.error('Failed to remove features from release', error);
-      
+      const detail = (error as any)?.details ? JSON.stringify((error as any).details) : '';
       return {
         success: false,
-        error: `Failed to remove features from release: ${(error as Error).message}`,
+        error: `Failed to remove features from release: ${(error as Error).message}${detail ? ` — API detail: ${detail}` : ''}`,
       };
     }
   }

@@ -6,77 +6,79 @@ import { Permission, AccessLevel } from '../../auth/permissions.js';
 
 interface ListReleasesParams {
   release_group_id?: string;
-  status?: string;
+  status?: 'planned' | 'in_progress' | 'released';
   date_from?: string;
   date_to?: string;
   limit?: number;
+  offset?: number;
 }
 
-interface ProductboardRelease {
+interface ReleaseEntity {
   id: string;
-  name: string;
-  description?: string;
-  archived?: boolean;
-  state?: string;
-  timeframe?: {
-    startDate?: string;
-    endDate?: string;
-    granularity?: string;
+  type: string;
+  fields?: {
+    name?: string;
+    status?: { id?: string; name?: string } | null;
+    timeframe?: { startDate?: string; endDate?: string; granularity?: string } | null;
+    [key: string]: unknown;
   };
-  releaseGroup?: {
-    id?: string;
-    links?: { self?: string };
-  };
-  links?: { self?: string; html?: string };
+  [key: string]: unknown;
 }
 
-interface ProductboardListResponse<T> {
-  data: T[];
-  links?: { next?: string };
+interface EntityListResponse {
+  data: ReleaseEntity[];
+  links?: { next?: string | null };
 }
 
-// Legacy status values from the original schema mapped to Productboard's real
-// state values. The tool now accepts either; the map lets old callers keep
-// working.
-const STATUS_ALIAS: Record<string, string> = {
-  planned: 'upcoming',
-  in_progress: 'in-progress',
-  released: 'completed',
+const MAX_PAGES = 40;
+
+// v1 used status tokens planned/in_progress/released. v2 releases expose a
+// status field whose workspace values are Upcoming / In Progress / Completed.
+const STATUS_TO_V2_NAME: Record<string, string> = {
+  planned: 'Upcoming',
+  in_progress: 'In Progress',
+  released: 'Completed',
 };
 
 export class ListReleasesTool extends BaseTool<ListReleasesParams> {
   constructor(apiClient: ProductboardAPIClient, logger: Logger) {
     super(
       'pb_release_list',
-      'List releases with optional filtering by release group, status, and timeframe',
+      'List releases with optional filtering',
       {
         type: 'object',
         properties: {
           release_group_id: {
             type: 'string',
-            description: 'Filter to releases in a specific release group (use pb_release_group_list to look up IDs)',
+            description: 'Filter by release group',
           },
           status: {
             type: 'string',
-            description:
-              'Filter by release state. Productboard uses "upcoming" | "in-progress" | "completed". Legacy values "planned" | "in_progress" | "released" are also accepted and mapped.',
+            enum: ['planned', 'in_progress', 'released'],
+            description: 'Filter by release status',
           },
           date_from: {
             type: 'string',
             format: 'date',
-            description: 'Filter to releases whose timeframe.startDate is on or after this date (YYYY-MM-DD). Releases with no scheduled start are excluded.',
+            description: 'Filter releases whose timeframe ends on or after this date',
           },
           date_to: {
             type: 'string',
             format: 'date',
-            description: 'Filter to releases whose timeframe.startDate is on or before this date (YYYY-MM-DD).',
+            description: 'Filter releases whose timeframe starts on or before this date',
           },
           limit: {
             type: 'number',
             minimum: 1,
             maximum: 100,
             default: 20,
-            description: 'Maximum number of releases to return after filtering',
+            description: 'Maximum number of releases to return',
+          },
+          offset: {
+            type: 'number',
+            minimum: 0,
+            default: 0,
+            description: 'Number of releases to skip',
           },
         },
       },
@@ -94,98 +96,76 @@ export class ListReleasesTool extends BaseTool<ListReleasesParams> {
     try {
       this.logger.info('Listing releases');
 
-      // Productboard's /releases endpoint actively rejects unknown query
-      // parameters with HTTP 400 (unlike /notes which silently ignores).
-      // The only server-supported filter is `releaseGroup.id` (dot notation).
-      // Everything else is applied client-side after fetching all pages.
-      const apiParams: Record<string, any> = { pageLimit: 100 };
-      if (params.release_group_id) {
-        apiParams['releaseGroup.id'] = params.release_group_id;
+      // v2 entities list. type[]/fields[] bracket keys are passed literally;
+      // parent[id] and status[name] are supported server-side filters (verified).
+      const initialParams: Record<string, any> = {
+        'type[]': 'release',
+        'fields[]': 'all',
+      };
+      if (params.release_group_id) initialParams['parent[id]'] = params.release_group_id;
+      if (params.status) initialParams['status[name]'] = STATUS_TO_V2_NAME[params.status];
+
+      let all: ReleaseEntity[] = [];
+      let endpoint = '/v2/entities';
+      let queryParams: Record<string, any> | undefined = initialParams;
+      let pages = 0;
+
+      while (endpoint && pages < MAX_PAGES) {
+        const response = (await this.apiClient.makeRequest({
+          method: 'GET',
+          endpoint,
+          params: queryParams,
+        })) as EntityListResponse;
+
+        if (Array.isArray(response?.data)) {
+          all.push(...response.data);
+        }
+
+        // links.next is a fully-qualified URL with all paging params encoded.
+        const next = response?.links?.next;
+        if (next) {
+          const url = new URL(next);
+          endpoint = url.pathname.replace(/^\/+/, '/');
+          queryParams = Object.fromEntries(url.searchParams.entries());
+        } else {
+          break;
+        }
+        pages += 1;
       }
 
-      const releases = await this.fetchAllPages('/releases', apiParams);
-
-      // Client-side filters
-      let filtered = releases;
-      if (params.status) {
-        const wantedState = STATUS_ALIAS[params.status] ?? params.status;
-        filtered = filtered.filter(r => r.state === wantedState);
-      }
-      if (params.date_from) {
-        filtered = filtered.filter(r => {
-          const s = r.timeframe?.startDate;
-          return s && s !== 'none' && s >= params.date_from!;
+      // date_from/date_to have no server-side filter on releases — apply them
+      // client-side against the release timeframe.
+      if (params.date_from || params.date_to) {
+        all = all.filter((r) => {
+          const tf = r.fields?.timeframe;
+          if (!tf) return false;
+          if (params.date_to && tf.startDate && tf.startDate > params.date_to) return false;
+          if (params.date_from && tf.endDate && tf.endDate < params.date_from) return false;
+          return true;
         });
       }
-      if (params.date_to) {
-        filtered = filtered.filter(r => {
-          const s = r.timeframe?.startDate;
-          return s && s !== 'none' && s <= params.date_to!;
-        });
-      }
 
+      const total = all.length;
+      const offset = params.offset ?? 0;
       const limit = params.limit ?? 20;
-      const results = filtered.slice(0, limit);
+      const paged = all.slice(offset, offset + limit);
 
       return {
         success: true,
         data: {
-          releases: results.map(r => ({
-            id: r.id,
-            name: r.name,
-            state: r.state,
-            timeframe: r.timeframe,
-            releaseGroupId: r.releaseGroup?.id,
-            archived: r.archived,
-            html: r.links?.html,
-          })),
-          total_matched: filtered.length,
-          returned: results.length,
-          total_workspace: releases.length,
+          data: paged,
+          total,
+          offset,
+          limit,
         },
       };
     } catch (error) {
       this.logger.error('Failed to list releases', error);
+
       return {
         success: false,
         error: `Failed to list releases: ${(error as Error).message}`,
       };
     }
-  }
-
-  /**
-   * Fetch every page of a Productboard list endpoint by following the
-   * `links.next` cursor.
-   */
-  private async fetchAllPages(
-    endpoint: string,
-    initialParams: Record<string, any>
-  ): Promise<ProductboardRelease[]> {
-    const all: ProductboardRelease[] = [];
-    let nextEndpoint: string | undefined = endpoint;
-    let nextParams: Record<string, any> | undefined = initialParams;
-
-    while (nextEndpoint) {
-      const response = (await this.apiClient.makeRequest({
-        method: 'GET',
-        endpoint: nextEndpoint,
-        params: nextParams,
-      })) as ProductboardListResponse<ProductboardRelease>;
-
-      if (Array.isArray(response?.data)) {
-        all.push(...response.data);
-      }
-
-      const next = response?.links?.next;
-      if (next) {
-        const url = new URL(next);
-        nextEndpoint = url.pathname.replace(/^\/+/, '/');
-        nextParams = Object.fromEntries(url.searchParams.entries());
-      } else {
-        nextEndpoint = undefined;
-      }
-    }
-
-    return all;
   }
 }

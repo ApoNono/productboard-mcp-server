@@ -50,27 +50,37 @@ export class SetCustomFieldValueTool extends BaseTool<SetCustomFieldValueParams>
 
   protected async executeInternal(params: SetCustomFieldValueParams): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Setting custom field value', { 
+      this.logger.info('Setting custom field value', {
         entity_id: params.entity_id,
-        field_id: params.field_id 
+        field_id: params.field_id,
       });
 
-      const response = await this.apiClient.put(
-        `/customfields/${params.field_id}/values`,
-        {
-          entity_id: params.entity_id,
-          entity_type: params.entity_type,
-          value: params.value,
-        }
+      // v1 /customfields/{id}/values was retired. In v2, custom field values live
+      // directly on the entity: they appear in the entity's `fields` object keyed by
+      // the field id (custom fields use a UUID key). Set one by PATCHing the entity
+      // with { data: { fields: { <field_id>: <value> } } }.
+      // entity_type is retained in the schema but not needed for the request — the
+      // PATCH /v2/entities/{id} endpoint is entity-type agnostic.
+      const body = {
+        data: {
+          fields: {
+            [params.field_id]: params.value,
+          },
+        },
+      };
+
+      const response = await this.apiClient.patch<any>(
+        `/v2/entities/${params.entity_id}`,
+        body
       );
 
       return {
         success: true,
-        data: response,
+        data: response?.data ?? response,
       };
     } catch (error) {
       this.logger.error('Failed to set custom field value', error);
-      
+
       return {
         success: false,
         error: `Failed to set custom field value: ${(error as Error).message}`,

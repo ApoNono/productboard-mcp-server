@@ -17,10 +17,11 @@ export class FeatureResource implements Resource {
     try {
       this.logger.debug('Retrieving features resource data');
       
-      // Get features data from API
-      const features = await this.apiClient.get('/features', {
-        limit: 100,
-        include: 'status,components,release',
+      // Get features data from the v2 entities API (v1 /features now returns 410 Gone).
+      // Features are entities of type "feature"; fields[]=all returns the full field set.
+      const features = await this.apiClient.get('/v2/entities', {
+        'type[]': 'feature',
+        'fields[]': 'all',
       }) as any;
 
       // Format the data for resource consumption

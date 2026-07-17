@@ -72,28 +72,27 @@ export class UpdateInitiativeTool extends BaseTool<UpdateInitiativeParams> {
     try {
       this.logger.info('Updating initiative', { initiative_id: params.initiative_id });
 
-      const data: Record<string, any> = {};
-      if (params.name !== undefined) data.name = params.name;
-      if (params.description !== undefined) data.description = params.description;
-      if (params.owner_email !== undefined) data.owner = { email: params.owner_email };
-      if (params.status_name !== undefined) data.status = { name: params.status_name };
-      if (params.archived !== undefined) data.archived = params.archived;
+      // v2 entities: PATCH /v2/entities/{id} with body { data: { fields: {...} } }.
+      const fields: Record<string, any> = {};
+      if (params.name !== undefined) fields.name = params.name;
+      if (params.description !== undefined) fields.description = params.description;
+      if (params.owner_email !== undefined) fields.owner = { email: params.owner_email };
+      if (params.status_name !== undefined) fields.status = { name: params.status_name };
+      if (params.archived !== undefined) fields.archived = params.archived;
       if (
         params.start_date !== undefined ||
         params.end_date !== undefined ||
         params.granularity !== undefined
       ) {
-        data.timeframe = {
+        fields.timeframe = {
           ...(params.start_date !== undefined && { startDate: params.start_date }),
           ...(params.end_date !== undefined && { endDate: params.end_date }),
           ...(params.granularity !== undefined && { granularity: params.granularity }),
         };
       }
 
-      const response = await this.apiClient.makeRequest({
-        method: 'PATCH',
-        endpoint: `/initiatives/${params.initiative_id}`,
-        data: { data },
+      const response = await this.apiClient.patch(`/v2/entities/${params.initiative_id}`, {
+        data: { fields },
       });
 
       return {

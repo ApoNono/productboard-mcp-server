@@ -58,16 +58,37 @@ export class LinkObjectivesToInitiativeTool extends BaseTool<LinkObjectivesToIni
         action,
       });
 
-      // POST   /initiatives/{id}/links/objectives/{objectiveId}   (link)
-      // DELETE /initiatives/{id}/links/objectives/{objectiveId}   (unlink)
-      const method = action === 'unlink' ? 'DELETE' : 'POST';
+      // v2 has no exposed endpoint to remove an entity relationship (the
+      // GET /v2/entities/{id}/relationships response carries no relationship
+      // ids to target for deletion). Keep the param in the schema for
+      // compatibility, but report unlink as unsupported rather than hit dead v1.
+      if (action === 'unlink') {
+        return {
+          success: false,
+          error:
+            'Unlinking is not supported by the Productboard v2 API: v2 exposes no endpoint to remove an entity relationship. Remove the link in the Productboard UI instead.',
+        };
+      }
+
+      // v2 relationships: POST /v2/entities/{initiativeId}/relationships, one
+      // call per objective (mirrors notes/attach-note.ts). The relationship
+      // "type" token is "link" (verified against GET relationships output).
       const results = await Promise.all(
         params.objective_ids.map(async objectiveId => {
           try {
-            await this.apiClient.makeRequest({
-              method,
-              endpoint: `/initiatives/${params.initiative_id}/links/objectives/${objectiveId}`,
-            });
+            await this.apiClient.post(
+              `/v2/entities/${params.initiative_id}/relationships`,
+              {
+                data: {
+                  type: 'link',
+                  target: {
+                    type: 'link',
+                    id: objectiveId,
+                    entity: { type: 'objective' },
+                  },
+                },
+              }
+            );
             return { objective_id: objectiveId, success: true };
           } catch (error) {
             return {

@@ -62,31 +62,21 @@ export class CreateCustomFieldTool extends BaseTool<CreateCustomFieldParams> {
     );
   }
 
-  protected async executeInternal(params: CreateCustomFieldParams): Promise<ToolExecutionResult> {
-    try {
-      this.logger.info('Creating custom field', { name: params.name, type: params.type });
+  protected async executeInternal(_params: CreateCustomFieldParams): Promise<ToolExecutionResult> {
+    // The v1 /customfields endpoint was retired (HTTP 410 Gone). Creating a custom
+    // field DEFINITION is not exposed by the public Productboard v2 API — v2 only
+    // lets you read field definitions (GET /v2/entities/configurations) and create
+    // additional options on an existing select-type field
+    // (POST /v2/entities/fields/{id}/values). New custom fields must be created in
+    // the Productboard UI. No networked call is made here.
+    this.logger.info('Custom field creation requested, but v2 has no field-definition create endpoint');
 
-      // Validate options for select fields
-      if ((params.type === 'select' || params.type === 'multiselect') && !params.options?.length) {
-        return {
-          success: false,
-          error: 'Options are required for select and multiselect field types',
-        };
-      }
-
-      const response = await this.apiClient.post('/customfields', params);
-
-      return {
-        success: true,
-        data: response,
-      };
-    } catch (error) {
-      this.logger.error('Failed to create custom field', error);
-      
-      return {
-        success: false,
-        error: `Failed to create custom field: ${(error as Error).message}`,
-      };
-    }
+    return {
+      success: false,
+      error:
+        'Creating custom field definitions is not supported by the Productboard v2 API. ' +
+        'v2 exposes field definitions read-only via GET /v2/entities/configurations; ' +
+        'new custom fields must be created in the Productboard UI.',
+    };
   }
 }

@@ -89,40 +89,14 @@ export class ExportDataTool extends BaseTool<ExportDataParams> {
     );
   }
 
-  protected async executeInternal(params: ExportDataParams): Promise<ToolExecutionResult> {
-    try {
-      this.logger.info('Exporting data', { 
-        type: params.export_type,
-        format: params.format 
-      });
+  protected async executeInternal(_params: ExportDataParams): Promise<ToolExecutionResult> {
+    // The v1 /export endpoint was retired (HTTP 410 Gone). Productboard's v2 API has
+    // no bulk-export equivalent, so no networked call is made here.
+    this.logger.info('Data export requested, but the v1 export endpoint has been retired');
 
-      const requestData: any = {
-        export_type: params.export_type,
-        format: params.format,
-        include_related: params.include_related !== false,
-      };
-
-      if (params.filters) {
-        requestData.filters = params.filters;
-      }
-
-      if (params.email_to) {
-        requestData.email_to = params.email_to;
-      }
-
-      const response = await this.apiClient.post('/export', requestData);
-
-      return {
-        success: true,
-        data: response,
-      };
-    } catch (error) {
-      this.logger.error('Failed to export data', error);
-      
-      return {
-        success: false,
-        error: `Failed to export data: ${(error as Error).message}`,
-      };
-    }
+    return {
+      success: false,
+      error: 'The v1 export endpoint has been retired; no v2 bulk-export equivalent is wired up in this server yet.',
+    };
   }
 }

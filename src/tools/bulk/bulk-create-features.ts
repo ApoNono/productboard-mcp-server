@@ -20,11 +20,20 @@ interface BulkCreateFeaturesParams {
   batch_size?: number;
 }
 
+// Best-effort mapping from the tool's stable status enum to v2 workflow status
+// display names. Display names are workspace-configurable.
+const STATUS_NAME_MAP: Record<string, string> = {
+  new: 'New',
+  in_progress: 'In progress',
+  validation: 'Validation',
+  done: 'Done',
+};
+
 export class BulkCreateFeaturesTool extends BaseTool<BulkCreateFeaturesParams> {
   constructor(apiClient: ProductboardAPIClient, logger: Logger) {
     super(
       'pb_feature_bulk_create',
-      'Bulk create multiple features',
+      'Bulk create multiple features (loops v2 /entities POST; v2 has no batch create endpoint)',
       {
         type: 'object',
         required: ['features'],
@@ -41,20 +50,20 @@ export class BulkCreateFeaturesTool extends BaseTool<BulkCreateFeaturesParams> {
                 },
                 description: {
                   type: 'string',
-                  description: 'Feature description',
+                  description: 'Feature description (plain text is converted to HTML)',
                 },
                 status: {
                   type: 'string',
                   enum: ['new', 'in_progress', 'validation', 'done', 'archived'],
-                  description: 'Feature status',
+                  description: 'Feature status (best-effort mapping to v2 status display names)',
                 },
                 product_id: {
                   type: 'string',
-                  description: 'Product ID',
+                  description: 'Parent product ID (used as the v2 parent relationship)',
                 },
                 component_id: {
                   type: 'string',
-                  description: 'Component ID',
+                  description: 'Parent component ID (used as the v2 parent relationship)',
                 },
                 owner_email: {
                   type: 'string',
@@ -69,7 +78,7 @@ export class BulkCreateFeaturesTool extends BaseTool<BulkCreateFeaturesParams> {
                 priority: {
                   type: 'string',
                   enum: ['critical', 'high', 'medium', 'low'],
-                  description: 'Feature priority',
+                  description: 'Retained for compatibility; priority has no v2 field equivalent and is ignored.',
                 },
               },
             },
@@ -82,7 +91,8 @@ export class BulkCreateFeaturesTool extends BaseTool<BulkCreateFeaturesParams> {
             minimum: 1,
             maximum: 50,
             default: 10,
-            description: 'Number of features to create per batch',
+            description:
+              'Retained for compatibility. v2 has no batch create endpoint, so features are created one-by-one via sequential POST /v2/entities; this value no longer controls a server-side batch.',
           },
         },
       },
@@ -98,29 +108,67 @@ export class BulkCreateFeaturesTool extends BaseTool<BulkCreateFeaturesParams> {
 
   protected async executeInternal(params: BulkCreateFeaturesParams): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Bulk creating features', { count: params.features.length });
+      this.logger.info('Bulk creating features (v2 /entities loop)', {
+        count: params.features.length,
+      });
 
-      const batchSize = params.batch_size || 10;
-      const results = [];
-      const errors = [];
+      const created: unknown[] = [];
+      const errors: Array<{ index: number; name: string; error: string }> = [];
+      let priorityIgnored = false;
 
-      for (let i = 0; i < params.features.length; i += batchSize) {
-        const batch = params.features.slice(i, i + batchSize);
-        
-        try {
-          const response = await this.apiClient.post('/features/bulk', {
-            features: batch.map(f => ({
-              ...f,
-              status: f.status || 'new',
-            })),
-          });
-          
-          results.push(...(response as any).created);
-        } catch (error) {
-          this.logger.error(`Failed to create batch ${i / batchSize + 1}`, error);
+      for (let i = 0; i < params.features.length; i++) {
+        const f = params.features[i];
+
+        if (!f.component_id && !f.product_id) {
           errors.push({
-            batch: i / batchSize + 1,
-            error: (error as Error).message,
+            index: i,
+            name: f.name,
+            error:
+              'Feature creation requires a parent. Provide component_id or product_id.',
+          });
+          continue;
+        }
+
+        if (f.priority !== undefined) priorityIgnored = true;
+
+        const description = f.description.startsWith('<')
+          ? f.description
+          : `<p>${f.description.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p>`;
+
+        const fields: Record<string, unknown> = {
+          name: f.name,
+          description,
+        };
+
+        if (f.owner_email) fields.owner = { email: f.owner_email };
+        if (f.tags) fields.tags = f.tags;
+        if (f.status) {
+          if (f.status === 'archived') {
+            fields.archived = true;
+          } else if (STATUS_NAME_MAP[f.status]) {
+            fields.status = { name: STATUS_NAME_MAP[f.status] };
+          }
+        }
+
+        const parentId = f.component_id || f.product_id;
+        const body = {
+          data: {
+            type: 'feature',
+            fields,
+            relationships: [{ type: 'parent', target: { id: parentId } }],
+          },
+        };
+
+        try {
+          const response = await this.apiClient.post<{ data?: unknown }>('/v2/entities', body);
+          created.push((response as { data?: unknown })?.data ?? response);
+        } catch (error) {
+          this.logger.error(`Failed to create feature at index ${i}`, error);
+          const detail = (error as any)?.details ? ` — ${JSON.stringify((error as any).details)}` : '';
+          errors.push({
+            index: i,
+            name: f.name,
+            error: `${(error as Error).message}${detail}`,
           });
         }
       }
@@ -128,15 +176,15 @@ export class BulkCreateFeaturesTool extends BaseTool<BulkCreateFeaturesParams> {
       return {
         success: errors.length === 0,
         data: {
-          created: results,
-          total_created: results.length,
+          created,
+          total_created: created.length,
           total_requested: params.features.length,
           errors: errors.length > 0 ? errors : undefined,
+          ignoredParams: priorityIgnored ? ['priority (no v2 equivalent)'] : undefined,
         },
       };
     } catch (error) {
       this.logger.error('Failed to bulk create features', error);
-      
       return {
         success: false,
         error: `Failed to bulk create features: ${(error as Error).message}`,

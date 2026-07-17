@@ -18,7 +18,7 @@ interface SearchFeaturesParams {
   };
   // New API-specific parameters
   status_id?: string; // UUID for status ID
-  note_id?: string; // UUID for note ID  
+  note_id?: string; // UUID for note ID
   include_archived?: boolean; // Include archived features (defaults to false)
   sort?: 'relevance' | 'created_at' | 'updated_at' | 'votes' | 'comments';
   order?: 'asc' | 'desc';
@@ -26,18 +26,42 @@ interface SearchFeaturesParams {
   offset?: number;
 }
 
+interface V2Entity {
+  id: string;
+  type?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  fields?: {
+    name?: string;
+    description?: string;
+    status?: { id?: string; name?: string } | null;
+    owner?: { id?: string; email?: string } | null;
+    tags?: Array<string | { name?: string }>;
+    archived?: boolean;
+    [key: string]: unknown;
+  };
+  links?: { self?: string; html?: string };
+  relationships?: unknown;
+}
+
+interface V2SearchResponse {
+  data?: V2Entity[];
+  links?: { next?: string | null };
+}
+
 export class SearchFeaturesTool extends BaseTool<SearchFeaturesParams> {
   constructor(apiClient: ProductboardAPIClient, logger: Logger) {
     super(
       'pb_search_features',
-      'Advanced search for features',
+      'Advanced search for features (v2 POST /entities/search; text matches feature name, remaining filters applied client-side)',
       {
         type: 'object',
         required: ['query'],
         properties: {
           query: {
             type: 'string',
-            description: 'Search query text',
+            description:
+              'Search query text. Matched server-side as a case-insensitive substring of the feature name (v2 entity search only matches on name).',
           },
           filters: {
             type: 'object',
@@ -45,82 +69,82 @@ export class SearchFeaturesTool extends BaseTool<SearchFeaturesParams> {
               status: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Filter by status',
+                description: 'Filter by status name(s) (client-side; matches any listed status).',
               },
               product_ids: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Filter by product IDs',
+                description: 'Filter by parent product/component IDs (client-side over relationships; matches any listed ID).',
               },
               owner_emails: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Filter by owner emails',
+                description: 'Filter by owner email(s) (client-side; matches any listed email).',
               },
               tags: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Filter by tags',
+                description: 'Filter by tags (client-side; feature must carry all listed tags).',
               },
               created_after: {
                 type: 'string',
                 format: 'date',
-                description: 'Filter features created after date',
+                description: 'Filter features created after date (client-side).',
               },
               created_before: {
                 type: 'string',
                 format: 'date',
-                description: 'Filter features created before date',
+                description: 'Filter features created before date (client-side).',
               },
               updated_after: {
                 type: 'string',
                 format: 'date',
-                description: 'Filter features updated after date',
+                description: 'Filter features updated after date (client-side).',
               },
               updated_before: {
                 type: 'string',
                 format: 'date',
-                description: 'Filter features updated before date',
+                description: 'Filter features updated before date (client-side).',
               },
             },
           },
           status_id: {
             type: 'string',
-            description: 'Filter by status ID (UUID) - server-side filtering',
+            description: 'Filter by status ID (UUID) (client-side).',
           },
           note_id: {
-            type: 'string', 
-            description: 'Filter by associated note ID (UUID) - server-side filtering',
+            type: 'string',
+            description: 'Filter to features linked to this note ID (UUID) (client-side over relationships).',
           },
           include_archived: {
             type: 'boolean',
             default: false,
-            description: 'Include archived features in results (defaults to false)',
+            description: 'Include archived features in results (defaults to false).',
           },
           sort: {
             type: 'string',
             enum: ['relevance', 'created_at', 'updated_at', 'votes', 'comments'],
             default: 'relevance',
-            description: 'Sort results by',
+            description: 'Sort results by (client-side). "votes" and "comments" are not available in v2 and are reported as ignored.',
           },
           order: {
             type: 'string',
             enum: ['asc', 'desc'],
             default: 'desc',
-            description: 'Sort order',
+            description: 'Sort order (client-side).',
           },
           limit: {
             type: 'number',
             minimum: 1,
             maximum: 100,
             default: 20,
-            description: 'Maximum number of results',
+            description: 'Maximum number of results.',
           },
           offset: {
             type: 'number',
             minimum: 0,
             default: 0,
-            description: 'Number of results to skip',
+            description: 'Number of results to skip.',
           },
         },
       },
@@ -134,218 +158,160 @@ export class SearchFeaturesTool extends BaseTool<SearchFeaturesParams> {
     );
   }
 
-  private buildApiQueryParams(params: SearchFeaturesParams): URLSearchParams {
-    const queryParams = new URLSearchParams();
-    
-    // Always exclude archived features unless specifically requested
-    const includeArchived = params.include_archived ?? false;
-    queryParams.set('archived', includeArchived.toString());
-    
-    // Status filtering - prefer status_id (UUID) over status name
-    if (params.status_id) {
-      queryParams.set('status.id', params.status_id);
-    } else if (params.filters?.status?.length) {
-      // Use first status name for server-side filtering
-      queryParams.set('status.name', params.filters.status[0]);
+  private extractCursor(nextUrl: string): string | undefined {
+    try {
+      return new URL(nextUrl).searchParams.get('pageCursor') ?? undefined;
+    } catch {
+      const match = nextUrl.match(/[?&]pageCursor=([^&]+)/);
+      return match ? decodeURIComponent(match[1]) : undefined;
     }
-    
-    // Product/Parent filtering
-    if (params.filters?.product_ids?.length) {
-      // Use first product ID for server-side filtering
-      queryParams.set('parent.id', params.filters.product_ids[0]);
-    }
-    
-    // Owner filtering
-    if (params.filters?.owner_emails?.length) {
-      // Use first owner email for server-side filtering
-      queryParams.set('owner.email', params.filters.owner_emails[0]);
-    }
-    
-    // Note filtering
-    if (params.note_id) {
-      queryParams.set('note.id', params.note_id);
-    }
-    
-    return queryParams;
   }
 
-  private async fetchAllFeaturesRecursively(baseEndpoint: string, queryParams?: URLSearchParams): Promise<any[]> {
-    const allFeatures: any[] = [];
-    
-    // Build initial endpoint with query parameters
-    const queryString = queryParams?.toString();
-    const initialEndpoint = queryString ? `${baseEndpoint}?${queryString}` : baseEndpoint;
-    let currentEndpoint: string | null = initialEndpoint;
-    let pageCount = 0;
+  private async searchAllFeatures(query: string): Promise<V2Entity[]> {
+    const body = {
+      data: {
+        filter: {
+          type: ['feature'],
+          fields: { name: query },
+        },
+        return: { fields: ['all'] },
+      },
+    };
 
-    while (currentEndpoint) {
-      pageCount++;
-      this.logger.debug(`Fetching page ${pageCount} from: ${currentEndpoint}`);
+    const all: V2Entity[] = [];
+    let pageCursor: string | undefined;
+    let pages = 0;
+    const MAX_PAGES = 40;
 
-      const response: {
-        data: any[];
-        links?: { next?: string };
-      } = await this.apiClient.get(currentEndpoint);
+    do {
+      const params = pageCursor ? { pageCursor } : undefined;
+      const resp = await this.apiClient.post<V2SearchResponse>('/v2/entities/search', body, { params });
+      const batch = resp?.data ?? [];
+      all.push(...batch);
 
-      // Add current page data
-      if (response.data) {
-        allFeatures.push(...response.data);
-        this.logger.debug(`Page ${pageCount}: ${response.data.length} features`);
-      }
+      const next = resp?.links?.next ?? undefined;
+      pageCursor = next ? this.extractCursor(next) : undefined;
+      pages++;
+    } while (pageCursor && pages < MAX_PAGES);
 
-      // Check for next link
-      const nextLink: string | undefined = response.links?.next;
-      
-      if (nextLink) {
-        // Extract just the path and query from the full URL
-        try {
-          const url = new URL(nextLink);
-          currentEndpoint = url.pathname + url.search;
-        } catch (error) {
-          // If it's already a relative path, use as-is
-          currentEndpoint = nextLink;
-          this.logger.debug(`Using relative path: ${currentEndpoint}`);
-        }
-      } else {
-        currentEndpoint = null;
-      }
-
-      // Safety check to prevent infinite loops
-      if (pageCount > 100) {
-        this.logger.warn('Reached maximum page limit (100), stopping pagination');
-        break;
-      }
-    }
-
-    this.logger.info(`Completed pagination: ${pageCount} pages, ${allFeatures.length} total features`);
-    return allFeatures;
+    this.logger.debug(`Feature search fetched ${all.length} features across ${pages} page(s)`);
+    return all;
   }
 
   protected async executeInternal(params: SearchFeaturesParams): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Searching features with hybrid server/client-side filtering', { query: params.query });
+      this.logger.info('Searching features via v2 entities/search', { query: params.query });
 
-      // Build API query parameters for server-side filtering
-      const apiQueryParams = this.buildApiQueryParams(params);
-      this.logger.debug('API query parameters:', Object.fromEntries(apiQueryParams.entries()));
+      const query = (params.query || '').toLowerCase();
+      const filters = params.filters ?? {};
 
-      // Fetch features with server-side filtering
-      this.logger.debug('Fetching features with server-side filtering...');
-      const allFeatures = await this.fetchAllFeaturesRecursively('/features', apiQueryParams);
-      this.logger.debug(`Fetched ${allFeatures.length} features after server-side filtering`);
+      // Server-side: case-insensitive substring on name.
+      const allFeatures = await this.searchAllFeatures(params.query || '');
 
-      // Apply client-side filtering
-      const query = params.query.toLowerCase();
-      let filteredFeatures = allFeatures.filter((feature: any) => {
-        // Text search in name and description
-        const matchesQuery = 
-          (feature.name?.toLowerCase().includes(query)) ||
-          (feature.description?.toLowerCase().includes(query));
+      const includeArchived = params.include_archived ?? false;
+      const wantTags = filters.tags?.length ? filters.tags.map((t) => t.toLowerCase()) : null;
 
-        if (!matchesQuery) return false;
+      let filtered = allFeatures.filter((feature) => {
+        const f = feature.fields ?? {};
 
-        // Apply remaining client-side filters (skip those applied server-side)
-        if (params.filters) {
-          // Status filter - only apply if multiple statuses and no status_id (server-side handles single status)
-          if (params.filters.status && params.filters.status.length > 1 && !params.status_id) {
-            const statusMatches = params.filters.status.some(status => 
-              feature.status?.name?.toLowerCase() === status.toLowerCase()
-            );
-            if (!statusMatches) return false;
-          }
+        // Archived handling (default: exclude archived).
+        if (!includeArchived && f.archived === true) return false;
 
-          // Owner email filter - only apply if multiple emails (server-side handles single email)
-          if (params.filters.owner_emails && params.filters.owner_emails.length > 1) {
-            const ownerMatches = params.filters.owner_emails.some(email => 
-              feature.owner?.email?.toLowerCase() === email.toLowerCase()
-            );
-            if (!ownerMatches) return false;
-          }
+        // status_id (UUID) exact match.
+        if (params.status_id && f.status?.id !== params.status_id) return false;
 
-          // Date filters
-          if (params.filters.created_after) {
-            const createdAt = new Date(feature.createdAt);
-            const afterDate = new Date(params.filters.created_after);
-            if (createdAt <= afterDate) return false;
-          }
-
-          if (params.filters.created_before) {
-            const createdAt = new Date(feature.createdAt);
-            const beforeDate = new Date(params.filters.created_before);
-            if (createdAt >= beforeDate) return false;
-          }
-
-          if (params.filters.updated_after) {
-            const updatedAt = new Date(feature.updatedAt);
-            const afterDate = new Date(params.filters.updated_after);
-            if (updatedAt <= afterDate) return false;
-          }
-
-          if (params.filters.updated_before) {
-            const updatedAt = new Date(feature.updatedAt);
-            const beforeDate = new Date(params.filters.updated_before);
-            if (updatedAt >= beforeDate) return false;
-          }
-
-          // Product IDs filter - only apply if multiple IDs (server-side handles single ID)
-          if (params.filters.product_ids?.length && params.filters.product_ids.length > 1) {
-            const productMatches = params.filters.product_ids.some(id => 
-              feature.parent?.component?.id === id
-            );
-            if (!productMatches) return false;
-          }
+        // status names (any match).
+        if (filters.status?.length) {
+          const statusName = f.status?.name?.toLowerCase();
+          if (!filters.status.some((s) => s.toLowerCase() === statusName)) return false;
         }
+
+        // owner emails (any match).
+        if (filters.owner_emails?.length) {
+          const ownerEmail = f.owner?.email?.toLowerCase();
+          if (!filters.owner_emails.some((e) => e.toLowerCase() === ownerEmail)) return false;
+        }
+
+        // tags (must carry all listed tags).
+        if (wantTags) {
+          const featTags = (f.tags ?? []).map((t) =>
+            (typeof t === 'string' ? t : t?.name ?? '').toLowerCase()
+          );
+          if (!wantTags.every((t) => featTags.includes(t))) return false;
+        }
+
+        // product/parent IDs (any match; scan relationships).
+        if (filters.product_ids?.length) {
+          const rels = JSON.stringify(feature.relationships ?? []);
+          if (!filters.product_ids.some((id) => rels.includes(id))) return false;
+        }
+
+        // note linkage (scan relationships).
+        if (params.note_id) {
+          const rels = JSON.stringify(feature.relationships ?? []);
+          if (!rels.includes(params.note_id)) return false;
+        }
+
+        // Date filters (strict comparisons, matching prior behavior).
+        if (filters.created_after && new Date(feature.createdAt ?? 0) <= new Date(filters.created_after)) return false;
+        if (filters.created_before && new Date(feature.createdAt ?? 0) >= new Date(filters.created_before)) return false;
+        if (filters.updated_after && new Date(feature.updatedAt ?? 0) <= new Date(filters.updated_after)) return false;
+        if (filters.updated_before && new Date(feature.updatedAt ?? 0) >= new Date(filters.updated_before)) return false;
 
         return true;
       });
 
-      // Sort results
+      // Sort (client-side).
       const sortField = params.sort || 'relevance';
       const sortOrder = params.order || 'desc';
-
-      filteredFeatures.sort((a: any, b: any) => {
+      filtered = filtered.sort((a, b) => {
         let comparison = 0;
-        
         switch (sortField) {
           case 'created_at':
-            comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+            comparison = new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
             break;
           case 'updated_at':
-            comparison = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+            comparison = new Date(a.updatedAt ?? 0).getTime() - new Date(b.updatedAt ?? 0).getTime();
             break;
           case 'relevance':
-          default:
-            // For relevance, prioritize name matches over description matches
-            const aNameMatch = a.name?.toLowerCase().includes(query) ? 1 : 0;
-            const bNameMatch = b.name?.toLowerCase().includes(query) ? 1 : 0;
-            comparison = bNameMatch - aNameMatch;
+          default: {
+            const aName = a.fields?.name?.toLowerCase().includes(query) ? 1 : 0;
+            const bName = b.fields?.name?.toLowerCase().includes(query) ? 1 : 0;
+            comparison = bName - aName;
             break;
+          }
         }
-
         return sortOrder === 'desc' ? -comparison : comparison;
       });
 
-      // Apply pagination
+      // Pagination (client-side).
       const limit = params.limit || 20;
       const offset = params.offset || 0;
-      const paginatedResults = filteredFeatures.slice(offset, offset + limit);
+      const paginated = filtered.slice(offset, offset + limit);
 
-      this.logger.info(`Feature search completed: ${filteredFeatures.length} matches, returning ${paginatedResults.length} results`);
+      const ignoredParams: string[] = [];
+      if (sortField === 'votes' || sortField === 'comments') {
+        ignoredParams.push(`sort=${sortField} (not available in v2)`);
+      }
+
+      this.logger.info(
+        `Feature search completed: ${filtered.length} matches, returning ${paginated.length}`
+      );
 
       return {
         success: true,
         data: {
-          features: paginatedResults,
-          total: filteredFeatures.length,
+          features: paginated,
+          total: filtered.length,
           limit,
           offset,
           query: params.query,
-          hasMore: offset + limit < filteredFeatures.length,
+          hasMore: offset + limit < filtered.length,
+          ignoredParams: ignoredParams.length ? ignoredParams : undefined,
         },
       };
     } catch (error) {
       this.logger.error('Failed to search features', error);
-      
       return {
         success: false,
         error: `Failed to search features: ${(error as Error).message}`,

@@ -95,36 +95,15 @@ export class ExportToJiraTool extends BaseTool<ExportToJiraParams> {
     );
   }
 
-  protected async executeInternal(params: ExportToJiraParams): Promise<ToolExecutionResult> {
-    try {
-      this.logger.info('Exporting features to JIRA', { 
-        count: params.feature_ids.length,
-        project: params.jira_project_key 
-      });
+  protected async executeInternal(_params: ExportToJiraParams): Promise<ToolExecutionResult> {
+    // The v1 /integrations/jira/export endpoint was retired (HTTP 410 Gone). The v2
+    // Jira integration API is read-only (GET /v2/jira-integrations only), so there is
+    // no write/export endpoint to call.
+    this.logger.info('JIRA export requested, but the v2 Jira integration is read-only');
 
-      const response = await this.apiClient.post('/integrations/jira/export', {
-        feature_ids: params.feature_ids,
-        jira_project_key: params.jira_project_key,
-        issue_type: params.issue_type || 'Story',
-        options: params.create_options || {
-          include_description: true,
-          include_notes_as_comments: true,
-          link_back_to_productboard: true,
-        },
-        field_mapping: params.field_mapping,
-      });
-
-      return {
-        success: true,
-        data: response,
-      };
-    } catch (error) {
-      this.logger.error('Failed to export to JIRA', error);
-      
-      return {
-        success: false,
-        error: `Failed to export to JIRA: ${(error as Error).message}`,
-      };
-    }
+    return {
+      success: false,
+      error: 'Productboard v2 API does not expose a Jira export/sync write endpoint (v2 Jira integration is read-only). This operation is no longer available.',
+    };
   }
 }
