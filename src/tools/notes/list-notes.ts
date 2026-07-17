@@ -208,7 +208,16 @@ export class ListNotesTool extends BaseTool<ListNotesParams> {
     const ids = new Set<string>();
     const walk = (v: unknown): void => {
       if (!v || typeof v !== 'object') return;
+      if (Array.isArray(v)) {
+        for (const item of v) walk(item);
+        return;
+      }
       const obj = v as Record<string, unknown>;
+      // v2 read shape: relationships.data[] = { type, target: { id, type: 'feature' } }.
+      // A note's feature link is the relationship whose target is a feature entity.
+      const target = obj.target as Record<string, unknown> | undefined;
+      if (target?.type === 'feature' && typeof target.id === 'string') ids.add(target.id);
+      // Legacy/write shape kept for safety: { id, entity: { type: 'feature' } }.
       const entity = obj.entity as Record<string, unknown> | undefined;
       if (entity?.type === 'feature' && typeof obj.id === 'string') ids.add(obj.id);
       for (const val of Object.values(obj)) walk(val);
