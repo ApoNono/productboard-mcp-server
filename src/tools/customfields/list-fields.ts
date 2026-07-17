@@ -46,26 +46,41 @@ export class ListCustomFieldsTool extends BaseTool<ListCustomFieldsParams> {
 
   protected async executeInternal(params: ListCustomFieldsParams = {}): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Listing custom fields');
+      this.logger.info('Listing custom field definitions via v2 entity configurations');
 
-      const queryParams: Record<string, any> = {};
-      if (params.entity_type) queryParams.entity_type = params.entity_type;
-      if (params.type) queryParams.type = params.type;
-      if (params.required !== undefined) queryParams.required = params.required;
+      // v1 /customfields was retired. In v2, field DEFINITIONS (both built-in and
+      // custom) are exposed per entity type via GET /v2/entities/configurations.
+      // Each configuration lists the entity's fields with id, name, schema,
+      // lifecycle, constraints and (for select/status fields) allowed values.
+      const queryParams: Record<string, string> = {};
+      if (params.entity_type) queryParams['type[]'] = params.entity_type;
 
-      const response = await this.apiClient.makeRequest({
-        method: 'GET',
-        endpoint: '/customfields',
-        params: queryParams,
-      });
+      const response = await this.apiClient.get<any>('/v2/entities/configurations', queryParams);
+
+      // The `type` (field data-type) and `required` filters have no server-side
+      // equivalent on this endpoint. Keep them in the schema but report as ignored.
+      const ignoredFilters: string[] = [];
+      if (params.type) ignoredFilters.push('type');
+      if (params.required !== undefined) ignoredFilters.push('required');
 
       return {
         success: true,
-        data: response,
+        data: {
+          configurations: response?.data ?? response,
+          links: response?.links,
+          ...(ignoredFilters.length
+            ? {
+                note:
+                  `Filters not supported by the v2 entity configurations endpoint and ignored: ` +
+                  `${ignoredFilters.join(', ')}. Field definitions are returned per entity type; ` +
+                  `inspect each field's schema/constraints to filter client-side.`,
+              }
+            : {}),
+        },
       };
     } catch (error) {
       this.logger.error('Failed to list custom fields', error);
-      
+
       return {
         success: false,
         error: `Failed to list custom fields: ${(error as Error).message}`,

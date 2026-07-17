@@ -40,24 +40,19 @@ export class TestWebhookTool extends BaseTool<TestWebhookParams> {
   }
 
   protected async executeInternal(params: TestWebhookParams): Promise<ToolExecutionResult> {
-    try {
-      this.logger.info('Testing webhook', { id: params.id });
+    this.logger.info('pb_webhook_test called — the Productboard v2 API has no webhook test endpoint', {
+      id: params.id,
+    });
 
-      const response = await this.apiClient.post(`/webhooks/${params.id}/test`, {
-        event_type: params.test_event || 'test',
-      });
-
-      return {
-        success: true,
-        data: response,
-      };
-    } catch (error) {
-      this.logger.error('Failed to test webhook', error);
-      
-      return {
-        success: false,
-        error: `Failed to test webhook: ${(error as Error).message}`,
-      };
-    }
+    // The v1 REST API is retired (HTTP 410 Gone) and the Productboard v2 API
+    // exposes no test/ping endpoint for webhooks. Rather than hit a dead endpoint,
+    // return a clear not-supported message.
+    return {
+      success: false,
+      error:
+        'The Productboard v2 API has no webhook test endpoint. There is no supported way to trigger a ' +
+        'test delivery via the API; verify the webhook by performing a real action that emits one of its ' +
+        'subscribed events, or inspect the webhook with pb_webhook_list.',
+    };
   }
 }

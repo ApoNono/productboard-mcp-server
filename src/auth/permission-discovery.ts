@@ -116,81 +116,95 @@ export class PermissionDiscoveryService {
       headers?: Record<string, string>;
       description: string;
     }> = [
-      // User endpoint tests
-      { endpoint: '/users', method: 'GET', description: 'List users (includes current user)' },
+      // Member endpoint tests (v2 — the old v1 /users route now returns 410 Gone;
+      // Productboard makers/users are exposed via /v2/members).
+      { endpoint: '/v2/members', method: 'GET', description: 'List members (makers/users)' },
 
-      // Feature endpoint tests
-      { endpoint: '/features', method: 'GET', description: 'Read features' },
+      // Feature endpoint tests (v2 — /v1 /features now 410 Gone; entities are the
+      // v2 model). The POST intentionally omits the required { data: { type, fields } }
+      // wrapper so it returns a 400 validation error (proving write access) without
+      // creating a real entity.
+      { endpoint: '/v2/entities?type[]=feature', method: 'GET', description: 'Read features' },
       {
-        endpoint: '/features',
+        endpoint: '/v2/entities',
         method: 'POST',
         testData: { name: 'Permission Test Feature', description: 'Test' },
         description: 'Create features',
       },
 
-      // Product endpoint tests
-      { endpoint: '/products', method: 'GET', description: 'Read products' },
+      // Product endpoint tests (v2 entities)
+      { endpoint: '/v2/entities?type[]=product', method: 'GET', description: 'Read products' },
       {
-        endpoint: '/products',
+        endpoint: '/v2/entities',
         method: 'POST',
         testData: { name: 'Permission Test Product', type: 'product' },
         description: 'Create products',
       },
 
-      // Note endpoint tests
-      { endpoint: '/notes', method: 'GET', description: 'Read notes' },
+      // Note endpoint tests (v2 — the v1 /notes route now returns 410 Gone).
+      // The POST test intentionally omits the required { data: { ... } }
+      // wrapper so it returns a 400 validation error (proving write access)
+      // without creating a real note.
+      { endpoint: '/v2/notes', method: 'GET', description: 'Read notes' },
       {
-        endpoint: '/notes',
+        endpoint: '/v2/notes',
         method: 'POST',
-        testData: { 
+        testData: {
           title: 'Permission Test',
           content: 'Permission test note'
         },
         description: 'Create notes',
       },
 
-      // Company endpoint tests
-      { endpoint: '/companies', method: 'GET', description: 'Read companies' },
+      // Company endpoint tests (v2 entities)
+      { endpoint: '/v2/entities?type[]=company', method: 'GET', description: 'Read companies' },
 
-      // Objective endpoint tests
-      { endpoint: '/objectives', method: 'GET', description: 'Read objectives' },
+      // Objective endpoint tests (v2 entities)
+      { endpoint: '/v2/entities?type[]=objective', method: 'GET', description: 'Read objectives' },
       {
-        endpoint: '/objectives',
+        endpoint: '/v2/entities',
         method: 'POST',
         testData: { name: 'Test Objective', type: 'company' },
         description: 'Create objectives',
       },
 
-      // Release endpoint tests
-      { endpoint: '/releases', method: 'GET', description: 'Read releases' },
+      // Release endpoint tests (v2 entities). Malformed body (no data.type/fields
+      // wrapper) 400s without creating anything.
+      { endpoint: '/v2/entities?type[]=release', method: 'GET', description: 'Read releases' },
       {
-        endpoint: '/releases',
+        endpoint: '/v2/entities',
         method: 'POST',
-        testData: { 
+        testData: {
           data: {
             name: 'Test Release',
             description: 'Permission test release',
             releaseGroup: { id: '12345678-1234-1234-1234-123456789012' }
           }
         },
-        headers: { 'X-Version': '1' },
         description: 'Create releases',
       },
 
-      // Custom field tests - skip these as endpoint doesn't exist
-      // { endpoint: '/custom_fields', method: 'GET', description: 'Read custom fields' },
+      // Custom field tests - skipped: v2 has no per-token custom-field permission
+      // probe (definitions are read via /v2/entities/configurations).
 
-      // Webhook tests
-      { endpoint: '/webhooks', method: 'GET', description: 'Read webhooks' },
+      // Webhook tests (v2)
+      { endpoint: '/v2/webhooks', method: 'GET', description: 'Read webhooks' },
       {
-        endpoint: '/webhooks',
+        endpoint: '/v2/webhooks',
         method: 'POST',
         testData: { url: 'https://example.com/webhook', events: ['feature.created'] },
         description: 'Create webhooks',
       },
 
-      // Search test
-      { endpoint: '/search?q=test', method: 'GET', description: 'Search functionality' },
+      // Search test (v2 — the v1 /search route now returns 410 Gone; entity search
+      // is POST /v2/entities/search). A successful search returns a data array (no
+      // top-level id), so it does not trigger the POST-cleanup delete below.
+      {
+        endpoint: '/v2/entities/search',
+        method: 'POST',
+        testData: { data: { filter: { type: ['feature'], fields: { name: 'test' } }, return: { fields: ['name'] } } },
+        description: 'Search functionality',
+      },
 
       // Analytics tests - skip these as endpoints don't exist
       // { endpoint: '/analytics/features', method: 'GET', description: 'Feature analytics' },
@@ -289,43 +303,48 @@ export class PermissionDiscoveryService {
       );
     };
 
-    // Analyze user permissions
-    const usersRead = canAccess('/users', 'GET');
-    const usersWrite = canAccess('/users', 'POST');
+    // Analyze user/member permissions (v2 /v2/members). There is no members POST
+    // probe, so usersWrite stays false — the same as under the old v1 /users probe.
+    const usersRead = canAccess('/v2/members', 'GET');
+    const usersWrite = canAccess('/v2/members', 'POST');
     if (usersRead) permissions.add(Permission.USERS_READ);
     if (usersWrite) permissions.add(Permission.USERS_WRITE);
 
-    // Analyze feature permissions
-    const featuresRead = canAccess('/features', 'GET');
-    const featuresWrite = canAccess('/features', 'POST');
+    // Analyze feature permissions. In v2 features/products/companies/objectives/
+    // releases are all served by the single /v2/entities endpoint, so they share one
+    // read permission and one write permission — canAccess('/v2/entities', …) resolves
+    // them together, which is semantically correct for v2.
+    const featuresRead = canAccess('/v2/entities', 'GET');
+    const featuresWrite = canAccess('/v2/entities', 'POST');
     if (featuresRead) permissions.add(Permission.FEATURES_READ);
     if (featuresWrite) permissions.add(Permission.FEATURES_WRITE);
 
-    // Analyze product permissions
-    const productsRead = canAccess('/products', 'GET');
-    const productsWrite = canAccess('/products', 'POST');
+    // Analyze product permissions (v2 entities)
+    const productsRead = canAccess('/v2/entities', 'GET');
+    const productsWrite = canAccess('/v2/entities', 'POST');
     if (productsRead) permissions.add(Permission.PRODUCTS_READ);
     if (productsWrite) permissions.add(Permission.PRODUCTS_WRITE);
 
-    // Analyze note permissions
+    // Analyze note permissions ('/notes' still matches the '/v2/notes' probe via
+    // substring include).
     const notesRead = canAccess('/notes', 'GET');
     const notesWrite = canAccess('/notes', 'POST');
     if (notesRead) permissions.add(Permission.NOTES_READ);
     if (notesWrite) permissions.add(Permission.NOTES_WRITE);
 
-    // Analyze company permissions
-    const companiesRead = canAccess('/companies', 'GET');
+    // Analyze company permissions (v2 entities)
+    const companiesRead = canAccess('/v2/entities', 'GET');
     if (companiesRead) permissions.add(Permission.COMPANIES_READ);
 
-    // Analyze objective permissions
-    const objectivesRead = canAccess('/objectives', 'GET');
-    const objectivesWrite = canAccess('/objectives', 'POST');
+    // Analyze objective permissions (v2 entities)
+    const objectivesRead = canAccess('/v2/entities', 'GET');
+    const objectivesWrite = canAccess('/v2/entities', 'POST');
     if (objectivesRead) permissions.add(Permission.OBJECTIVES_READ);
     if (objectivesWrite) permissions.add(Permission.OBJECTIVES_WRITE);
 
-    // Analyze release permissions
-    const releasesRead = canAccess('/releases', 'GET');
-    const releasesWrite = canAccess('/releases', 'POST');
+    // Analyze release permissions (v2 entities)
+    const releasesRead = canAccess('/v2/entities', 'GET');
+    const releasesWrite = canAccess('/v2/entities', 'POST');
     if (releasesRead) permissions.add(Permission.RELEASES_READ);
     if (releasesWrite) permissions.add(Permission.RELEASES_WRITE);
 
@@ -335,14 +354,14 @@ export class PermissionDiscoveryService {
     if (customFieldsRead) permissions.add(Permission.CUSTOM_FIELDS_READ);
     if (customFieldsWrite) permissions.add(Permission.CUSTOM_FIELDS_WRITE);
 
-    // Analyze webhook permissions
-    const webhooksRead = canAccess('/webhooks', 'GET');
-    const webhooksWrite = canAccess('/webhooks', 'POST');
+    // Analyze webhook permissions (v2)
+    const webhooksRead = canAccess('/v2/webhooks', 'GET');
+    const webhooksWrite = canAccess('/v2/webhooks', 'POST');
     if (webhooksRead) permissions.add(Permission.WEBHOOKS_READ);
     if (webhooksWrite) permissions.add(Permission.WEBHOOKS_WRITE);
 
-    // Analyze search permissions
-    const searchEnabled = canAccess('/search', 'GET');
+    // Analyze search permissions (v2 POST /v2/entities/search)
+    const searchEnabled = canAccess('/v2/entities/search', 'POST');
     if (searchEnabled) permissions.add(Permission.SEARCH);
 
     // Analyze analytics permissions - assume available for admin tokens

@@ -71,28 +71,30 @@ export class CreateInitiativeTool extends BaseTool<CreateInitiativeParams> {
     try {
       this.logger.info('Creating initiative', { name: params.name });
 
-      // Productboard's POST /initiatives body mirrors the GET response shape.
-      const body: Record<string, any> = {
-        data: {
-          name: params.name,
-        },
+      // v2 entities: POST /v2/entities with type "initiative" and a fields
+      // object (same envelope as create-feature.ts).
+      const fields: Record<string, any> = {
+        name: params.name,
       };
-      if (params.description) body.data.description = params.description;
-      if (params.owner_email) body.data.owner = { email: params.owner_email };
-      if (params.status_name) body.data.status = { name: params.status_name };
+      if (params.description) fields.description = params.description;
+      if (params.owner_email) fields.owner = { email: params.owner_email };
+      if (params.status_name) fields.status = { name: params.status_name };
       if (params.start_date || params.end_date || params.granularity) {
-        body.data.timeframe = {
+        fields.timeframe = {
           ...(params.start_date && { startDate: params.start_date }),
           ...(params.end_date && { endDate: params.end_date }),
           ...(params.granularity && { granularity: params.granularity }),
         };
       }
 
-      const response = await this.apiClient.makeRequest({
-        method: 'POST',
-        endpoint: '/initiatives',
-        data: body,
-      });
+      const body: Record<string, any> = {
+        data: {
+          type: 'initiative',
+          fields,
+        },
+      };
+
+      const response = await this.apiClient.post('/v2/entities', body);
 
       return {
         success: true,

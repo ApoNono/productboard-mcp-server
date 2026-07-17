@@ -95,25 +95,47 @@ export class BulkCreateNotesTool extends BaseTool<BulkCreateNotesParams> {
     try {
       this.logger.info('Bulk creating notes', { count: params.notes.length });
 
-      const batchSize = params.batch_size || 10;
-      const results = [];
-      const errors = [];
+      // The v2 API has no bulk-create endpoint (the v1 /notes/bulk route now
+      // returns 410 Gone), so we create notes individually via POST /v2/notes.
+      // batch_size is retained for schema compatibility but no longer changes
+      // the request shape — notes are created sequentially.
+      const results: unknown[] = [];
+      const errors: Array<{ index: number; title?: string; error: string }> = [];
 
-      for (let i = 0; i < params.notes.length; i += batchSize) {
-        const batch = params.notes.slice(i, i + batchSize);
-        
+      for (let i = 0; i < params.notes.length; i++) {
+        const note = params.notes[i];
         try {
-          const response = await this.apiClient.post('/notes/bulk', {
-            notes: batch,
+          const name = (note.title && note.title.trim()) || this.deriveTitle(note.content);
+          const content = note.content.startsWith('<')
+            ? note.content
+            : `<p>${note.content.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p>`;
+
+          const fields: Record<string, unknown> = { name, content };
+          if (note.tags?.length) {
+            fields.tags = note.tags.map((tag) => ({ name: tag }));
+          }
+
+          const response = await this.apiClient.post<{ data?: { id?: string } }>('/v2/notes', {
+            data: { type: 'textNote', fields },
           });
-          
-          results.push(...(response as any).created);
+          const created = (response as any)?.data ?? response;
+          const noteId: string | undefined = created?.id;
+
+          if (noteId && note.feature_ids?.length) {
+            for (const featureId of note.feature_ids) {
+              await this.apiClient.post(`/v2/notes/${noteId}/relationships`, {
+                data: {
+                  type: 'link',
+                  target: { type: 'link', id: featureId, entity: { type: 'feature' } },
+                },
+              });
+            }
+          }
+
+          results.push(created);
         } catch (error) {
-          this.logger.error(`Failed to create batch ${i / batchSize + 1}`, error);
-          errors.push({
-            batch: i / batchSize + 1,
-            error: (error as Error).message,
-          });
+          this.logger.error(`Failed to create note at index ${i}`, error);
+          errors.push({ index: i, title: note.title, error: (error as Error).message });
         }
       }
 
@@ -128,11 +150,17 @@ export class BulkCreateNotesTool extends BaseTool<BulkCreateNotesParams> {
       };
     } catch (error) {
       this.logger.error('Failed to bulk create notes', error);
-      
+
       return {
         success: false,
         error: `Failed to bulk create notes: ${(error as Error).message}`,
       };
     }
+  }
+
+  private deriveTitle(content: string): string {
+    const text = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text) return 'Untitled Note';
+    return text.length > 80 ? `${text.slice(0, 77)}...` : text;
   }
 }

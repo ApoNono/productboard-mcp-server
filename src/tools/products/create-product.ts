@@ -1,7 +1,9 @@
 import { BaseTool } from '../base.js';
 import { ProductboardAPIClient } from '../../api/client.js';
 import { Logger } from '../../utils/logger.js';
+import { ToolExecutionResult } from '../../core/types.js';
 import { Permission, AccessLevel } from '../../auth/permissions.js';
+
 interface CreateProductParams {
   name: string;
   description?: string;
@@ -28,7 +30,7 @@ export class CreateProductTool extends BaseTool<CreateProductParams> {
           },
           parent_id: {
             type: 'string',
-            description: 'Parent product ID (for creating sub-products)',
+            description: 'Parent product ID (for creating sub-products). Added as a v2 parent relationship.',
           },
           owner_email: {
             type: 'string',
@@ -47,14 +49,55 @@ export class CreateProductTool extends BaseTool<CreateProductParams> {
     );
   }
 
-  protected async executeInternal(params: CreateProductParams): Promise<unknown> {
+  protected async executeInternal(params: CreateProductParams): Promise<ToolExecutionResult> {
     this.logger.info('Creating product', { name: params.name });
 
-    const response = await this.apiClient.post('/products', params);
+    try {
+      const fields: Record<string, unknown> = {
+        name: params.name,
+      };
 
-    return {
-      success: true,
-      data: response,
-    };
+      if (params.description) {
+        // v2 entity descriptions are HTML; wrap plain text like create-feature does.
+        fields.description = params.description.startsWith('<')
+          ? params.description
+          : `<p>${params.description.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p>`;
+      }
+
+      if (params.owner_email) {
+        fields.owner = { email: params.owner_email };
+      }
+
+      const relationships: unknown[] = [];
+      if (params.parent_id) {
+        relationships.push({
+          type: 'parent',
+          target: { id: params.parent_id },
+        });
+      }
+
+      const body: Record<string, unknown> = {
+        data: {
+          type: 'product',
+          fields,
+          ...(relationships.length > 0 ? { relationships } : {}),
+        },
+      };
+
+      const response = await this.apiClient.post('/v2/entities', body);
+      const created = (response as any).data || response;
+
+      return {
+        success: true,
+        data: created,
+      };
+    } catch (error) {
+      this.logger.error('Failed to create product', error);
+      const detail = (error as any)?.details ? JSON.stringify((error as any).details) : '';
+      return {
+        success: false,
+        error: `Failed to create product: ${(error as Error).message}${detail ? ` — API detail: ${detail}` : ''}`,
+      };
+    }
   }
 }

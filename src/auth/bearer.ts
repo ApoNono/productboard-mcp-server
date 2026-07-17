@@ -15,10 +15,12 @@ export class BearerTokenAuth {
 
   async validateToken(token: string): Promise<boolean> {
     try {
-      const url = `${this.baseUrl}/features`;
+      // Validate against a live v2 endpoint. The v1 REST API (/features,
+      // /users, etc.) now returns 410 Gone, so it can no longer be used to
+      // check the token. /v2/notes is a lightweight, always-present read.
+      const url = `${this.baseUrl}/v2/notes?pageLimit=1`;
       this.logger.debug('Bearer token validation URL', { url });
 
-      // Use /features endpoint for token validation (without parameters)
       const response = await axios.get(url, {
         headers: this.getHeaders(token),
         timeout: 5000,

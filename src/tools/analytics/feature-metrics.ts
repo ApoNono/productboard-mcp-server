@@ -59,34 +59,15 @@ export class FeatureMetricsTool extends BaseTool<FeatureMetricsParams> {
     );
   }
 
-  protected async executeInternal(params: FeatureMetricsParams = {}): Promise<ToolExecutionResult> {
-    try {
-      this.logger.info('Getting feature analytics metrics');
+  protected async executeInternal(_params: FeatureMetricsParams = {}): Promise<ToolExecutionResult> {
+    // The v1 /analytics/features endpoint was retired (HTTP 410 Gone). Productboard's
+    // v2 Analytics API is not a drop-in replacement for this tool, so no networked
+    // call is made here.
+    this.logger.info('Feature metrics requested, but the v1 analytics endpoint has been retired');
 
-      const queryParams: Record<string, any> = {};
-      if (params.feature_ids?.length) queryParams.feature_ids = params.feature_ids.join(',');
-      if (params.product_id) queryParams.product_id = params.product_id;
-      if (params.date_from) queryParams.date_from = params.date_from;
-      if (params.date_to) queryParams.date_to = params.date_to;
-      if (params.metrics?.length) queryParams.metrics = params.metrics.join(',');
-
-      const response = await this.apiClient.makeRequest({
-        method: 'GET',
-        endpoint: '/analytics/features',
-        params: queryParams,
-      });
-
-      return {
-        success: true,
-        data: response,
-      };
-    } catch (error) {
-      this.logger.error('Failed to get feature metrics', error);
-      
-      return {
-        success: false,
-        error: `Failed to get feature metrics: ${(error as Error).message}`,
-      };
-    }
+    return {
+      success: false,
+      error: 'The v1 analytics endpoint has been retired; no equivalent is wired up in this server yet.',
+    };
   }
 }

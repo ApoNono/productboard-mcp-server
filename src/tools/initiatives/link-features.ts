@@ -58,18 +58,37 @@ export class LinkFeaturesToInitiativeTool extends BaseTool<LinkFeaturesToInitiat
         action,
       });
 
-      // Productboard's link API operates one feature at a time:
-      //   POST   /initiatives/{id}/links/features/{featureId}   (link)
-      //   DELETE /initiatives/{id}/links/features/{featureId}   (unlink)
-      // The tool accepts an array for caller ergonomics; we fan out internally.
-      const method = action === 'unlink' ? 'DELETE' : 'POST';
+      // v2 has no exposed endpoint to remove an entity relationship (the
+      // GET /v2/entities/{id}/relationships response carries no relationship
+      // ids to target for deletion). Keep the param in the schema for
+      // compatibility, but report unlink as unsupported rather than hit dead v1.
+      if (action === 'unlink') {
+        return {
+          success: false,
+          error:
+            'Unlinking is not supported by the Productboard v2 API: v2 exposes no endpoint to remove an entity relationship. Remove the link in the Productboard UI instead.',
+        };
+      }
+
+      // v2 relationships: POST /v2/entities/{initiativeId}/relationships, one
+      // call per feature (mirrors notes/attach-note.ts). The relationship
+      // "type" token is "link" (verified against GET relationships output).
       const results = await Promise.all(
         params.feature_ids.map(async featureId => {
           try {
-            await this.apiClient.makeRequest({
-              method,
-              endpoint: `/initiatives/${params.initiative_id}/links/features/${featureId}`,
-            });
+            await this.apiClient.post(
+              `/v2/entities/${params.initiative_id}/relationships`,
+              {
+                data: {
+                  type: 'link',
+                  target: {
+                    type: 'link',
+                    id: featureId,
+                    entity: { type: 'feature' },
+                  },
+                },
+              }
+            );
             return { feature_id: featureId, success: true };
           } catch (error) {
             return {

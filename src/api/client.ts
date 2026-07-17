@@ -262,8 +262,9 @@ export class ProductboardAPIClient {
 
   async testConnection(): Promise<boolean> {
     try {
-      // Use /users endpoint as it only requires users:read scope
-      await this.get('/users');
+      // The v1 REST API (/users, /features, etc.) now returns 410 Gone.
+      // Use the v2 /notes endpoint as a lightweight liveness/auth check.
+      await this.get('/v2/notes', { pageLimit: 1 });
       return true;
     } catch (error) {
       if (error instanceof APIAuthenticationError) {

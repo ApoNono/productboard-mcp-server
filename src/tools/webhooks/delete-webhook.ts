@@ -37,7 +37,7 @@ export class DeleteWebhookTool extends BaseTool<DeleteWebhookParams> {
     try {
       this.logger.info('Deleting webhook', { id: params.id });
 
-      await this.apiClient.delete(`/webhooks/${params.id}`);
+      await this.apiClient.delete(`/v2/webhooks/${params.id}`);
 
       return {
         success: true,

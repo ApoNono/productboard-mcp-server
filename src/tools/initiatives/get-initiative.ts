@@ -37,9 +37,9 @@ export class GetInitiativeTool extends BaseTool<GetInitiativeParams> {
     try {
       this.logger.info('Getting initiative', { initiative_id: params.initiative_id });
 
-      const response = await this.apiClient.makeRequest({
-        method: 'GET',
-        endpoint: `/initiatives/${params.initiative_id}`,
+      // v2 entities: GET /v2/entities/{id}?fields[]=all returns { data: {...} }.
+      const response = await this.apiClient.get(`/v2/entities/${params.initiative_id}`, {
+        'fields[]': 'all',
       });
 
       const initiative = (response as any)?.data ?? response;

@@ -17,27 +17,28 @@ export class UserResource implements Resource {
     try {
       this.logger.debug('Retrieving users resource data');
       
-      // Get current user data (most MCP use cases focus on current user context)
-      const currentUser = await this.apiClient.get('/me') as any;
-      
-      // Get team users if available
+      // v2 has no current-user/current-member endpoint (the v1 /me route is gone),
+      // so there is no "current user" context available here.
+      const currentUser: any = null;
+
+      // Get workspace members from the v2 members API (v1 /users now returns 410 Gone).
       let teamUsers = [];
       try {
-        const usersResponse = await this.apiClient.get('/users', { limit: 50 }) as any;
+        const usersResponse = await this.apiClient.get('/v2/members') as any;
         teamUsers = usersResponse.data || [];
       } catch (error) {
-        this.logger.debug('Team users not available or access restricted');
+        this.logger.debug('Members not available or access restricted');
       }
 
       // Format the data for resource consumption
       const resourceData = {
         meta: {
           type: 'users',
-          currentUser: currentUser.data ? true : false,
+          currentUser: currentUser ? true : false,
           teamCount: teamUsers.length,
           timestamp: new Date().toISOString(),
         },
-        currentUser: currentUser.data || null,
+        currentUser: currentUser,
         teamUsers: teamUsers,
         schema: {
           properties: {

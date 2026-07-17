@@ -63,27 +63,41 @@ export class UpdateKeyResultTool extends BaseTool<UpdateKeyResultParams> {
     try {
       this.logger.info('Updating key result', { id: params.id });
 
-      const { id, ...updateData } = params;
-      
-      if (Object.keys(updateData).length === 0) {
+      // Metric field keys are best-effort camelCase (see create-keyresult.ts):
+      // no existing keyResult entities were available to confirm exact keys,
+      // and the v2 API silently ignores unknown field names.
+      const fields: Record<string, unknown> = {};
+      if (params.name !== undefined) fields.name = params.name;
+      if (params.metric_type !== undefined) fields.metricType = params.metric_type;
+      if (params.current_value !== undefined) fields.currentValue = params.current_value;
+      if (params.target_value !== undefined) fields.targetValue = params.target_value;
+      if (params.unit !== undefined) fields.unit = params.unit;
+
+      if (Object.keys(fields).length === 0) {
         return {
           success: false,
           error: 'No update fields provided',
         };
       }
 
-      const response = await this.apiClient.put(`/keyresults/${id}`, updateData);
+      const response = await this.apiClient.patch(`/v2/entities/${params.id}`, {
+        data: { fields },
+      });
+      const updated = (response as any).data || response;
 
       return {
         success: true,
-        data: response,
+        data: {
+          keyResult: updated,
+          note: 'Metric field keys (metricType/currentValue/targetValue/unit) are unverified; confirm the updated entity reflects the intended values, as unknown keys are silently ignored by the v2 API.',
+        },
       };
     } catch (error) {
       this.logger.error('Failed to update key result', error);
-      
+      const detail = (error as any)?.details ? JSON.stringify((error as any).details) : '';
       return {
         success: false,
-        error: `Failed to update key result: ${(error as Error).message}`,
+        error: `Failed to update key result: ${(error as Error).message}${detail ? ` — API detail: ${detail}` : ''}`,
       };
     }
   }

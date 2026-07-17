@@ -61,31 +61,18 @@ export class UpdateWebhookTool extends BaseTool<UpdateWebhookParams> {
   }
 
   protected async executeInternal(params: UpdateWebhookParams): Promise<ToolExecutionResult> {
-    try {
-      this.logger.info('Updating webhook', { id: params.id });
+    this.logger.info('pb_webhook_update called — the Productboard v2 API has no webhook update endpoint', {
+      id: params.id,
+    });
 
-      const { id, ...updateData } = params;
-      
-      if (Object.keys(updateData).length === 0) {
-        return {
-          success: false,
-          error: 'No update fields provided',
-        };
-      }
-
-      const response = await this.apiClient.put(`/webhooks/${id}`, updateData);
-
-      return {
-        success: true,
-        data: response,
-      };
-    } catch (error) {
-      this.logger.error('Failed to update webhook', error);
-      
-      return {
-        success: false,
-        error: `Failed to update webhook: ${(error as Error).message}`,
-      };
-    }
+    // The v1 REST API is retired (HTTP 410 Gone) and the Productboard v2 API
+    // exposes no PATCH/PUT endpoint for webhooks. Rather than hit a dead endpoint,
+    // return a clear explanation of the supported alternative.
+    return {
+      success: false,
+      error:
+        'The Productboard v2 API has no webhook update endpoint (webhooks are immutable). ' +
+        'To change a webhook, delete it with pb_webhook_delete and recreate it with pb_webhook_create.',
+    };
   }
 }

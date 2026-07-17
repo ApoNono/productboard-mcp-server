@@ -79,10 +79,18 @@ export class BulkAttachNotesTool extends BaseTool<BulkAttachNotesParams> {
         
         for (const attachment of batch) {
           try {
-            await this.apiClient.post(`/notes/${attachment.note_id}/features`, {
-              feature_ids: attachment.feature_ids,
-            });
-            
+            // v2 links notes to features one relationship at a time via
+            // POST /v2/notes/{id}/relationships (the v1 /notes/{id}/features
+            // route now returns 410 Gone).
+            for (const featureId of attachment.feature_ids) {
+              await this.apiClient.post(`/v2/notes/${attachment.note_id}/relationships`, {
+                data: {
+                  type: 'link',
+                  target: { type: 'link', id: featureId, entity: { type: 'feature' } },
+                },
+              });
+            }
+
             results.attached.push({
               note_id: attachment.note_id,
               feature_ids: attachment.feature_ids,

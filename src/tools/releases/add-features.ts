@@ -42,25 +42,44 @@ export class AddFeaturesToReleaseTool extends BaseTool<AddFeaturesToReleaseParam
 
   protected async executeInternal(params: AddFeaturesToReleaseParams): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Adding features to release', { 
+      this.logger.info('Adding features to release', {
         release_id: params.release_id,
-        feature_count: params.feature_ids.length 
+        feature_count: params.feature_ids.length,
       });
 
-      const response = await this.apiClient.post(`/releases/${params.release_id}/features`, {
-        feature_ids: params.feature_ids,
-      });
+      // v2: a feature is linked to a release through a "link" relationship
+      // (verified: a feature's relationships include { type:'link', target:{ type:'release' } }).
+      // Create one relationship per feature on the release entity, mirroring
+      // the note-attach pattern (POST /v2/entities/{id}/relationships).
+      const results: unknown[] = [];
+      for (const featureId of params.feature_ids) {
+        const body = {
+          data: {
+            type: 'link',
+            target: {
+              type: 'link',
+              id: featureId,
+              entity: { type: 'feature' },
+            },
+          },
+        };
+        const response = await this.apiClient.post(
+          `/v2/entities/${params.release_id}/relationships`,
+          body,
+        );
+        results.push(response);
+      }
 
       return {
         success: true,
-        data: response,
+        data: results,
       };
     } catch (error) {
       this.logger.error('Failed to add features to release', error);
-      
+      const detail = (error as any)?.details ? JSON.stringify((error as any).details) : '';
       return {
         success: false,
-        error: `Failed to add features to release: ${(error as Error).message}`,
+        error: `Failed to add features to release: ${(error as Error).message}${detail ? ` — API detail: ${detail}` : ''}`,
       };
     }
   }

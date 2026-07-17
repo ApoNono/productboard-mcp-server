@@ -42,25 +42,48 @@ export class LinkFeaturesToObjectiveTool extends BaseTool<LinkFeaturesToObjectiv
 
   protected async executeInternal(params: LinkFeaturesToObjectiveParams): Promise<ToolExecutionResult> {
     try {
-      this.logger.info('Linking features to objective', { 
+      this.logger.info('Linking features to objective', {
         objective_id: params.objective_id,
-        feature_count: params.feature_ids.length 
+        feature_count: params.feature_ids.length,
       });
 
-      const response = await this.apiClient.post(`/objectives/${params.objective_id}/features`, {
-        feature_ids: params.feature_ids,
-      });
+      // v2 endpoint: POST /v2/entities/{objectiveId}/relationships, one call per
+      // feature link. The relationship "type" token is "link" (verified via GET
+      // /v2/entities/{id}/relationships, which returns entries of {type:"link", target:{...}}).
+      // Body shape mirrors notes/attach-note.ts.
+      const results: unknown[] = [];
+      for (const featureId of params.feature_ids) {
+        const body = {
+          data: {
+            type: 'link',
+            target: {
+              type: 'link',
+              id: featureId,
+              entity: { type: 'feature' },
+            },
+          },
+        };
+        const response = await this.apiClient.post(
+          `/v2/entities/${params.objective_id}/relationships`,
+          body,
+        );
+        results.push(response);
+      }
 
       return {
         success: true,
-        data: response,
+        data: {
+          objective_id: params.objective_id,
+          linked_feature_ids: params.feature_ids,
+          results,
+        },
       };
     } catch (error) {
       this.logger.error('Failed to link features to objective', error);
-      
+      const detail = (error as any)?.details ? JSON.stringify((error as any).details) : '';
       return {
         success: false,
-        error: `Failed to link features to objective: ${(error as Error).message}`,
+        error: `Failed to link features to objective: ${(error as Error).message}${detail ? ` — API detail: ${detail}` : ''}`,
       };
     }
   }

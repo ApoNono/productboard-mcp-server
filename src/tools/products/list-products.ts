@@ -1,11 +1,35 @@
 import { BaseTool } from '../base.js';
 import { ProductboardAPIClient } from '../../api/client.js';
 import { Logger } from '../../utils/logger.js';
+import { ToolExecutionResult } from '../../core/types.js';
 import { Permission, AccessLevel } from '../../auth/permissions.js';
+
 interface ListProductsParams {
   parent_id?: string;
   include_components?: boolean;
   include_archived?: boolean;
+}
+
+// Minimal shape of a v2 entity as returned by GET /v2/entities.
+interface V2Entity {
+  id: string;
+  type?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  fields?: {
+    name?: string;
+    description?: string;
+    owner?: { id?: string; email?: string } | null;
+    archived?: boolean;
+    [key: string]: unknown;
+  };
+  links?: { self?: string; html?: string };
+  relationships?: { data?: Array<{ type?: string; target?: { id?: string; type?: string } }> };
+}
+
+interface V2ListResponse {
+  data?: V2Entity[];
+  links?: { next?: string | null };
 }
 
 export class ListProductsTool extends BaseTool<ListProductsParams> {
@@ -18,17 +42,17 @@ export class ListProductsTool extends BaseTool<ListProductsParams> {
         properties: {
           parent_id: {
             type: 'string',
-            description: 'Filter by parent product ID (for sub-products)',
+            description: 'Filter by parent product ID (for sub-products). Maps to the v2 parent[id] filter.',
           },
           include_components: {
             type: 'boolean',
             default: false,
-            description: 'Include component information',
+            description: 'Include the child component references carried on each product entity.',
           },
           include_archived: {
             type: 'boolean',
             default: false,
-            description: 'Include archived products',
+            description: 'Include archived products (applied client-side; archived products are excluded by default).',
           },
         },
       },
@@ -42,35 +66,87 @@ export class ListProductsTool extends BaseTool<ListProductsParams> {
     );
   }
 
-  protected async executeInternal(params: ListProductsParams): Promise<unknown> {
+  protected async executeInternal(params: ListProductsParams = {}): Promise<ToolExecutionResult> {
+    this.logger.info('Listing products (v2 /entities type=product)');
+
     try {
-      this.logger.info('Listing products');
+      // v2 lists entities by type. Products are entities of type "product".
+      const serverParams: Record<string, string> = {
+        'type[]': 'product',
+        'fields[]': 'all',
+      };
+      // parent[id] is a supported server-side filter (verified via curl).
+      if (params.parent_id) serverParams['parent[id]'] = params.parent_id;
 
-      const queryParams: Record<string, any> = {};
-      if (params.parent_id) queryParams.parent_id = params.parent_id;
-      if (params.include_components) queryParams.include_components = params.include_components;
-      if (params.include_archived) queryParams.include_archived = params.include_archived;
+      const collected: V2Entity[] = [];
+      let pageCursor: string | undefined;
+      let pages = 0;
+      const MAX_PAGES = 40;
 
-      const response = await this.apiClient.makeRequest({
-        method: 'GET',
-        endpoint: '/products',
-        params: queryParams,
-      });
+      do {
+        const query: Record<string, string> = { ...serverParams };
+        if (pageCursor) query.pageCursor = pageCursor;
+
+        const resp = await this.apiClient.get<V2ListResponse>('/v2/entities', query);
+        const batch = resp?.data ?? [];
+        collected.push(...batch);
+
+        const next = resp?.links?.next ?? undefined;
+        pageCursor = next ? this.extractCursor(next) : undefined;
+        pages++;
+      } while (pageCursor && pages < MAX_PAGES);
+
+      const includeArchived = params.include_archived ?? false;
+      const filtered = includeArchived
+        ? collected
+        : collected.filter((e) => e.fields?.archived !== true);
+
+      const products = filtered.map((e) => this.shapeProduct(e, params.include_components ?? false));
 
       return {
         success: true,
         data: {
-          products: Array.isArray((response as any).data) ? (response as any).data : [],
-          total: Array.isArray((response as any).data) ? (response as any).data.length : 0,
+          products,
+          total: products.length,
+          pagesScanned: pages,
         },
       };
     } catch (error) {
       this.logger.error('Failed to list products', error);
-
       return {
         success: false,
         error: `Failed to list products: ${(error as Error).message}`,
       };
+    }
+  }
+
+  private shapeProduct(e: V2Entity, includeComponents: boolean) {
+    const f = e.fields ?? {};
+    const shaped: Record<string, unknown> = {
+      id: e.id,
+      name: f.name ?? 'Untitled Product',
+      description: f.description ?? '',
+      owner_email: f.owner?.email ?? null,
+      archived: f.archived ?? false,
+      created_at: e.createdAt ?? null,
+      updated_at: e.updatedAt ?? null,
+      html_url: e.links?.html ?? null,
+    };
+    if (includeComponents) {
+      shaped.components = (e.relationships?.data ?? [])
+        .filter((r) => r.type === 'child' && r.target?.type === 'component')
+        .map((r) => r.target?.id)
+        .filter((id): id is string => Boolean(id));
+    }
+    return shaped;
+  }
+
+  private extractCursor(nextUrl: string): string | undefined {
+    try {
+      return new URL(nextUrl).searchParams.get('pageCursor') ?? undefined;
+    } catch {
+      const match = nextUrl.match(/[?&]pageCursor=([^&]+)/);
+      return match ? decodeURIComponent(match[1]) : undefined;
     }
   }
 }
